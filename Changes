@@ -1,5 +1,10 @@
 Revision history for CPAN-Testers-WWW-Statistics
 
+0.49	18/09/2008
+        - amended bin/addresses.pl (v0.11) to only check reports.
+	- added further domains in matching to be ignored
+	- switched to Sort::Versions rather than version
+
 0.48	03/09/2008
         - complete abstraction of scripts into modules.
         - removal of cpanstats database scripts and code into

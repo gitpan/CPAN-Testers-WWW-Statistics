@@ -24,9 +24,9 @@ The scripts require the following Perl modules to be installed:
   Getopt::Long
   HTML::Entities
   IO::File
+  Sort::Versions
   Template
   Time::Piece
-  version
   WWW::Mechanize
 
 SCRIPTS

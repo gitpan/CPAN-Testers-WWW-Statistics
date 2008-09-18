@@ -15,9 +15,9 @@ WriteMakefile(
         Getopt::Long            => 0,
         HTML::Entities          => 0,
         IO::File                => 0,
+        Sort::Versions          => 0,
         Template                => 0,
         WWW::Mechanize          => 0,
-        version                 => 0,
 
         # for the CGI tools
         CGI                     => 0,

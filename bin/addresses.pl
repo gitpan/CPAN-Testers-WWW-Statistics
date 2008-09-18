@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 use strict;
 
-my $VERSION = '0.10';
+my $VERSION = '0.11';
 
 #http://www.eurodns.com/search/index.php
 
@@ -116,8 +116,8 @@ sub load_addresses {
 
     # grab all records for the month
     my $sql = $options{month}
-        ? "SELECT tester UNIQ FROM cpanstats WHERE postdate >= '$options{month}'"
-        : "SELECT tester UNIQ FROM cpanstats";
+        ? "SELECT tester UNIQ FROM cpanstats WHERE postdate >= '$options{month}' AND state IN ('pass','fail','na','unknown')"
+        : "SELECT tester UNIQ FROM cpanstats WHERE state IN ('pass','fail','na','unknown')";
     my @rows = $dbi->get_query($sql);
     for my $row (@rows) {
         $parsed++;
@@ -221,8 +221,7 @@ sub map_cpan {
 sub map_domain {
     my ($key,$local,$domain,$email) = @_;
 
-    return 0    if( $domain eq 'dyndns.org'     ||
-                    $domain eq 'us.ibm.com'     ||
+    return 0    if( $domain eq 'us.ibm.com'     ||
                     $domain eq 'aacom.fr'       ||
                     $domain eq 'free.fr'        ||
                     $domain eq 'web.de'         ||
@@ -232,8 +231,9 @@ sub map_domain {
                     $domain eq 'mail.ru'        ||
                     $domain eq 'gmx.de'         ||
                     $domain eq 'ath.cx'         ||
-                    $domain eq 'no-ip.org'      ||
+                    $domain eq 'nih.gov'        ||
 
+                    $domain =~ /^(ieee|no-ip|dyndns)\.org$/                                         ||
                     $domain =~ /^(verizon|gmx|comcast|earthlink|cox)\.net$/                         ||
                     $domain =~ /^(yahoo|google|gmail|mac|pair|rr|sun|aol|pobox|hotmail|ibm)\.com$/  ||
 
@@ -300,7 +300,9 @@ sub _help {
         print "Usage:$0 [--help|h] [--version|V] \\\n";
         print "         [--database|d=<file>] \\\n";
         print "         [--address|a=<file>] \\\n";
-        print "         [--mailrc|m=<file>] \n\n";
+        print "         [--mailrc|m=<file>] \\\n";
+        print "         [--month=<string>] \\\n";
+        print "         [--match] \n\n";
 
 #              12345678901234567890123456789012345678901234567890123456789012345678901234567890
         print "This program builds the CPAN Testers Statistics website.\n";
@@ -309,6 +311,8 @@ sub _help {
         print "  [--database=<file>]        # path/file to database\n";
         print "  [--address=<file>]         # path/file to addresses file\n";
         print "  [--mailrc=<file>]          # path/file to mailrc file\n";
+        print "  [--month=<string>]         # YYYYMM string to match from\n";
+        print "  [--match]                  # display matches only\n";
 
         print "\nOther Options:\n";
         print "  [--version]                # program version\n";

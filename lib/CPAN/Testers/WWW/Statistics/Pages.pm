@@ -1,9 +1,10 @@
 package CPAN::Testers::WWW::Statistics::Pages;
 
+use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.48';
+$VERSION = '0.49';
 
 #----------------------------------------------------------------------------
 
@@ -33,9 +34,9 @@ use File::Copy;
 use File::Path;
 use HTML::Entities;
 use IO::File;
+use Sort::Versions;
 use Template;
 #use Time::HiRes qw ( time );
-use version;
 
 use CPAN::Testers::WWW::Statistics::Database;
 
@@ -326,7 +327,7 @@ sub _write_stats {
     # calculate worst failure rates - by failure count
     my %worst;
     for my $dist (keys %fails) {
-        my ($version) = sort {$b <=> $a} keys %{$fails{$dist}};
+        my ($version) = sort {versioncmp($b,$a)} keys %{$fails{$dist}};
         $worst{"$dist-$version"} = $fails{$dist}->{$version};
         $worst{"$dist-$version"}->{dist}   = $dist;
         $worst{"$dist-$version"}->{pcent}  = $fails{$dist}->{$version}->{fail} ? int(($fails{$dist}->{$version}->{fail}/$fails{$dist}->{$version}->{total})*10000)/100 : 0.00;
@@ -451,11 +452,7 @@ sub _report_matrix {
         $perls{$row->[7]} = 1;
     }
 
-    @versions =
-        reverse
-        map {$_->{external}}
-        sort {$a->{internal} <=> $b->{internal}}
-        map {my $v = version->new($_); {internal => $v->numify, external => $_}} keys %perls;
+    my @versions = sort {versioncmp($b,$a)} keys %perls;
 
     my $content = '<table id="matrix">';
     $content .= '<tr><th>Platform/Perl</th><th>' . join("</th><th>",@versions) . '</th></tr>';

@@ -1,9 +1,10 @@
 package CPAN::Testers::WWW::Statistics::Graphs;
 
+use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.48';
+$VERSION = '0.49';
 
 #----------------------------------------------------------------------------
 
