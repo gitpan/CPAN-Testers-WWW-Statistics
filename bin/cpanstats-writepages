@@ -49,7 +49,8 @@ my $pages = CPAN::Testers::WWW::Statistics::Pages->new(
         directory => $options{directory},
         templates => $options{templates},
         database  => $options{database},
-        address   => $options{address}
+        address   => $options{address},
+        progress  => $options{progress}
 );
 $pages->create();
 
@@ -72,6 +73,7 @@ sub init_options {
         'directory=s',
         'database|d=s',
         'address|a=s',
+        'progress|p',
         'help|h',
         'version|V'
     );
@@ -103,7 +105,8 @@ sub _help {
         print "         [--templates=<dir>]   \\\n";
         print "         [--directory=<dir>]   \\\n";
         print "         [--database|d=<file>] \\\n";
-        print "         [--address|a=<file>]  \n\n";
+        print "         [--address|a=<file>]  \\\n";
+        print "         [--progress|p]  \n\n";
 
 #              12345678901234567890123456789012345678901234567890123456789012345678901234567890
         print "This program builds the CPAN Testers Statistics website.\n";
@@ -112,6 +115,8 @@ sub _help {
         print "  [--templates=<dir>]        # path to templates\n";
         print "  [--directory=<dir>]        # path to website directory\n";
         print "  [--database=<file>]        # path/file to database\n";
+        print "  [--address=<file>]         # path/file to address file\n";
+        print "  [--progress]               # enable progress messages\n";
 
         print "\nOther Options:\n";
         print "  [--version]                # program version\n";

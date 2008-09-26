@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                CPAN::Testers::WWW::Statistics
-version:             0.49
+version:             0.50
 abstract:            Scripts to create the cpanstats website
 author:
   - Barbie <barbie@cpan.org>
@@ -14,6 +14,7 @@ requires:
   DBI:                  0
   DBD::SQLite:          1.07
   GD::Graph::lines:     0
+  Email::Simple:        0
   File::Basename:       0
   File::Copy:           0
   File::Path:           0
@@ -37,16 +38,16 @@ build_requires:
 provides:
   CPAN::Testers::WWW::Statistics:
     file:     lib/CPAN/Testers/WWW/Statistics.pm
-    version:  0.49
+    version:  0.50
   CPAN::Testers::WWW::Statistics::Database:
     file:     lib/CPAN/Testers/WWW/Statistics/Database.pm
-    version:  0.49
+    version:  0.50
   CPAN::Testers::WWW::Statistics::Graphs:
     file:     lib/CPAN/Testers/WWW/Statistics/Graphs.pm
-    version:  0.49
+    version:  0.50
   CPAN::Testers::WWW::Statistics::Pages:
     file:     lib/CPAN/Testers/WWW/Statistics/Pages.pm
-    version:  0.49
+    version:  0.50
 
 meta-spec:
    version:   1.4

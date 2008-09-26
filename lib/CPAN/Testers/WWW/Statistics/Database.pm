@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.49';
+$VERSION = '0.50';
 
 #----------------------------------------------------------------------------
 
@@ -132,7 +132,7 @@ sub get_query_iterator {
     return sub { return $sth->fetchrow_arrayref }
 }
 
-q("I code for beer!");
+q("Will code for Guinness!");
 
 __END__
 

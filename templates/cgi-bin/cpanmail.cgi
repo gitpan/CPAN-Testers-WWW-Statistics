@@ -2,7 +2,7 @@
 use strict;
 $|++;
 
-my $VERSION = 0.01;
+my $VERSION = 0.02;
 
 #----------------------------------------------------------------------------
 
@@ -24,15 +24,13 @@ the email address in a non-spam form.
 # -------------------------------------
 # Library Modules
 
-use lib qw(lib);
-use Article;
 
 use CGI;
 #use CGI::Carp qw(fatalsToBrowser);
-
-use Net::NNTP;
 use DBI;
+use Email::Simple;
 use IO::File;
+use Net::NNTP;
 use Template;
 
 # -------------------------------------
@@ -49,6 +47,7 @@ my ($dbh,%tvars);
 
 my $cgi = CGI->new();
 $tvars{nntpid} = $cgi->param('nntpid');
+$tvars{nntpid} =~ s/\D+//g;
 
 my $found = 0;
 if($tvars{nntpid}) {
@@ -108,11 +107,11 @@ sub retrieve_from_nntp {
     my $article = join "", @{$nntp->article($id) || []};
     return 0    unless($article);   # no article for that id!
 
-    my $object = Article->new($article);
-    return 0    unless($object);   # cannot parse the article
+    my $mail = Email::Simple->new($article);
+    return 0    unless $mail;
 
-    $tvars{subject} = $object->subject;
-    $tvars{from}    = $object->from;
+    $tvars{from}    = $mail->header("From");
+    $tvars{subject} = $mail->header("Subject");
 
     return 1;
 }

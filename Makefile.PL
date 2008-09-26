@@ -21,6 +21,7 @@ WriteMakefile(
 
         # for the CGI tools
         CGI                     => 0,
+        Email::Simple           => 0,
         Time::Piece             => 0,
     },
 

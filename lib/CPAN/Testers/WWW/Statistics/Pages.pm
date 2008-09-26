@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.49';
+$VERSION = '0.50';
 
 #----------------------------------------------------------------------------
 
@@ -54,7 +54,7 @@ my %month = (
     8 => 'September', 9 => 'October', 10 => 'November', 11 => 'December'
 );
 
-my ($LIMIT,@versions,%options,%pages);
+my ($LIMIT,%options,%pages);
 my ($THISYEAR,$RUNDATE,$STATDATE,$THISDATE,$THATYEAR,$LASTDATE,$THATDATE);
 my ($DATABASE2);
 
@@ -225,6 +225,8 @@ sub _write_stats {
         }
     }
 
+    my @versions = sort {versioncmp($b,$a)} keys %perls;
+
     _progress("stats hash built") if($self->{progress});
 
 ## GENERATE DISTRIBUTION MATRIX
@@ -232,12 +234,14 @@ sub _write_stats {
     _progress("building distribution matrix") if($self->{progress});
 
     my $index = 0;
-    my $content = '<table id="matrix">';
+    my $content = '<table class="matrix">';
     $content .= '<tr><th>Platform/Perl</th><th>' . join("</th><th>",@versions) . '</th></tr>';
     for my $platform (sort keys %pass) {
         $content .= '<tr><th>' . $platform . '</th>';
         for my $perl (@versions) {
-            my $count = scalar(keys %{$pass{$platform}->{$perl}}) || 0;
+            my $count = defined $pass{$platform}->{$perl}
+                            ? scalar(keys %{$pass{$platform}->{$perl}})
+                            : 0;
             if($count) {
                 $index++;
 
@@ -250,16 +254,18 @@ sub _write_stats {
                 undef %tvars;
             }
 
-            $content .= '<td class='
+            $content .= '<td class="'
                         . ($count > 50 ? 'lots' :
                           ($count >  0 ? 'some' : 'none'))
-                        . '>'
+                        . '">'
                         . ($count ? qq|<a href="list-$index.html">$count</a>| : '-')
                         . '</td>';
         }
         $content .= '</tr>';
     }
     $content .= '</table>';
+
+    _progress("written $index list pages") if($self->{progress});
 
     $tvars{CONTENT} = $content;
     $self->_writepage('dmatrix',\%tvars);
@@ -295,9 +301,9 @@ sub _write_stats {
 
         $content = sprintf "%d,%d,%d,%d\n",
             $date,
-            $stats{$date}->{state}->{fail},
-            $stats{$date}->{state}->{na},
-            $stats{$date}->{state}->{unknown};
+            ($stats{$date}->{state}->{fail}    || 0),
+            ($stats{$date}->{state}->{na}      || 0),
+            ($stats{$date}->{state}->{unknown} || 0);
         print $fh3 $content;
     }
     $fh->close;
@@ -332,6 +338,7 @@ sub _write_stats {
         $worst{"$dist-$version"}->{dist}   = $dist;
         $worst{"$dist-$version"}->{pcent}  = $fails{$dist}->{$version}->{fail} ? int(($fails{$dist}->{$version}->{fail}/$fails{$dist}->{$version}->{total})*10000)/100 : 0.00;
         $worst{"$dist-$version"}->{pass} ||= 0;
+        $worst{"$dist-$version"}->{fail} ||= 0;
     }
     my $count = 1;
     for my $dist (sort {$worst{$b}->{fail} <=> $worst{$a}->{fail} || $worst{$b}->{pcent} <=> $worst{$a}->{pcent}} keys %worst) {
@@ -452,17 +459,18 @@ sub _report_matrix {
         $perls{$row->[7]} = 1;
     }
 
-    my @versions = sort {versioncmp($b,$a)} keys %perls;
+    my @vers = sort {versioncmp($b,$a)} keys %perls;
 
-    my $content = '<table id="matrix">';
-    $content .= '<tr><th>Platform/Perl</th><th>' . join("</th><th>",@versions) . '</th></tr>';
+    my $content = '<table class="matrix">';
+    $content .= '<tr><th>Platform/Perl</th><th>' . join("</th><th>",@vers) . '</th></tr>';
     for my $platform (sort keys %stats) {
         $content .= '<tr><th>' . $platform . '</th>';
-        for my $perl (@versions) {
-            $content .= '<td class='
-                        . ($stats{$platform}->{$perl} > 50 ? 'lots' :
-                          ($stats{$platform}->{$perl} >  0 ? 'some' : 'none'))
-                        . '>'
+        for my $perl (@vers) {
+            $content .= '<td class="'
+                        . (defined $stats{$platform}->{$perl} ?
+                            ($stats{$platform}->{$perl} > 50 ? 'lots' :
+                              ($stats{$platform}->{$perl} >  0 ? 'some' : 'none')) : 'none')
+                        . '">'
                         . ($stats{$platform}->{$perl} || '-')
                         . '</td>';
         }

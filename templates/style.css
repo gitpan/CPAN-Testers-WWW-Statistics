@@ -116,17 +116,21 @@ tr,td {
 	padding: 0 0 0 20px;
 }
 
-#matrix {
+.matrix {
 	border: 1px;
 	padding:1px; 
 }
 
-#matrix th {
+.matrix th {
 	text-align:center;
 }
 
-#matrix td {
+.matrix td {
 	text-align:center;
+}
+
+.matrix .nntp {
+	width: 85px;
 }
 
 dt {
@@ -150,6 +154,10 @@ pre {
     margin-left: 20px;
     background-color:#ddd;
     padding: 5px;
+}
+
+img {
+    border: 0px;
 }
 
 .top a {
@@ -285,3 +293,12 @@ visibility:hidden
 }
 
 
+.emphasis {
+font-weight: bold;
+color: #ff00ff;
+}
+
+.shortline {
+	text-align: left;
+	width: 1000px;
+}

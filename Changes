@@ -1,5 +1,17 @@
 Revision history for CPAN-Testers-WWW-Statistics
 
+0.50	26/09/2008
+	- removed dependency of CPAN::WWW::Testers::Generator::Article from
+	  cpanmail.cgi (v0.02) and used Email::Simple directly.
+	- fixed style sheet references in some templates.
+	- fixed a number of warnings about undefined values in numeric 
+	  comparisons.
+	- fixed XHTML errors in templates.
+	- fixed cpanmail.cgi to ignore non-numeric characters, this is
+	  to ignore the 'msg' part if anyone enters that.
+	- added text to cpanmail.html giving examples of what the NNTP ID is.
+
+
 0.49	18/09/2008
         - amended bin/addresses.pl (v0.11) to only check reports.
 	- added further domains in matching to be ignored

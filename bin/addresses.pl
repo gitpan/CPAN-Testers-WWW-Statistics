@@ -166,10 +166,11 @@ sub print_addresses {
         }
     }
 
+    print "\n";
     return  if($options{match});
 
     my @mails;
-    print "\nPATTERNS:\n";
+    print "PATTERNS:\n";
     for my $key (sort {$unparsed_map{$a} cmp $unparsed_map{$b}} keys %unparsed_map) {
         next    unless($key);
 
@@ -185,7 +186,7 @@ sub print_addresses {
         print "$email->[0]\t$email->[1],\n";
     }
 
-    print "\nArticles parsed = $parsed\n";
+    print "\nArticles parsed = $parsed\n\n";
 }
 
 sub map_pause {
