@@ -1,5 +1,8 @@
 Revision history for CPAN-Testers-WWW-Statistics
 
+0.51	01/10/2008
+	- updated index template with correct links.
+
 0.50	26/09/2008
 	- removed dependency of CPAN::WWW::Testers::Generator::Article from
 	  cpanmail.cgi (v0.02) and used Email::Simple directly.
