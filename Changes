@@ -1,5 +1,8 @@
 Revision history for CPAN-Testers-WWW-Statistics
 
+0.52	09/10/2008
+	- added interesting stats page (thanks to JJ for the suggestion)..
+
 0.51	01/10/2008
 	- updated index template with correct links.
 
