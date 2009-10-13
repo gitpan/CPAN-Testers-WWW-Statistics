@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.65';
+$VERSION = '0.67';
 
 #----------------------------------------------------------------------------
 
@@ -145,7 +145,8 @@ sub _write_basics {
     my $DBSZ_UNCOMPRESSED = int((-s $database        ) / (1024 * 1024));
     my $DBSZ_COMPRESSED   = int((-s $database . '.gz') / (1024 * 1024));
 
-    my $ranges = $self->{parent}->ranges;
+    my $ranges1 = $self->{parent}->ranges('TEST_RANGES');
+    my $ranges2 = $self->{parent}->ranges('CPAN_RANGES');
 
     # additional pages not requiring metrics
     my %pages = (
@@ -154,10 +155,12 @@ sub _write_basics {
             cpanmail => {},
             response => {},
             graphs   => {},
-            graphs1  => {RANGES => $ranges, template=>'archive',PREFIX=>'stats1',TITLE=>'Monthly Report Counts'},
-            graphs2  => {RANGES => $ranges, template=>'archive',PREFIX=>'stats2',TITLE=>'Testers, Platforms and Perls'},
-            graphs3  => {RANGES => $ranges, template=>'archive',PREFIX=>'stats3',TITLE=>'Monthly Non-Passing Reports Counts'},
-            graphs4  => {RANGES => $ranges, template=>'archive',PREFIX=>'stats4',TITLE=>'Monthly Tester Fluctuations'}
+            graphs1  => {RANGES => $ranges1, template=>'archive',PREFIX=>'stats1' ,TITLE=>'Monthly Report Counts'},
+            graphs2  => {RANGES => $ranges1, template=>'archive',PREFIX=>'stats2' ,TITLE=>'Testers, Platforms and Perls'},
+            graphs3  => {RANGES => $ranges1, template=>'archive',PREFIX=>'stats3' ,TITLE=>'Monthly Non-Passing Reports Counts'},
+            graphs4  => {RANGES => $ranges1, template=>'archive',PREFIX=>'stats4' ,TITLE=>'Monthly Tester Fluctuations'},
+            graphs6  => {RANGES => $ranges2, template=>'archive',PREFIX=>'stats6' ,TITLE=>'All Distribution Uploads per Month'},
+            graphs12 => {RANGES => $ranges2, template=>'archive',PREFIX=>'stats12',TITLE=>'New Distribution Uploads per Month'}
     );
 
     $self->{parent}->_log("building support pages");
@@ -191,16 +194,25 @@ creates the HTML pages.
 
 sub _write_stats {
     my $self = shift;
-    my (%stats,%perls,%fails,%pass,%tvars,%testers,%counts);
+    my (%stats,%perls,%fails,%pass,%tvars,%testers,%counts,%dists);
 
+    $self->_report_cpan();
     $self->_report_matrix();
-    $self->_report_interesting();
 
 ## BUILD GENERAL STATS
 
+    $self->{parent}->_log("building dist hash");
+
+    my $iterator = $self->{parent}->{CPANSTATS}->iterator('hash',"SELECT dist,version FROM ixlatest");
+    while(my $row = $iterator->()) {
+        $dists{$row->{dist}}->{ALL} = 0;
+        $dists{$row->{dist}}->{IXL} = 0;
+        $dists{$row->{dist}}->{VER} = $row->{version};
+    }
+
     $self->{parent}->_log("building stats hash");
 
-    my $iterator = $self->{parent}->{CPANSTATS}->iterator('array',"SELECT * FROM cpanstats");
+    $iterator = $self->{parent}->{CPANSTATS}->iterator('array',"SELECT * FROM cpanstats");
     while(my $row = $iterator->()) {
         #insert_report($id,$state,$date,$from,$distvers,$platform);
         $row->[7] =~ s/\s.*//;  # only need to know the main release
@@ -235,12 +247,19 @@ sub _write_stats {
             $testers{$name}->{first} ||= $row->[2];
             $testers{$name}->{last}    = $row->[2];
             $counts{$row->[2]}->{testers}{$name} = 1;
+
+            if(defined $dists{$row->[4]}) {
+                $dists{$row->[4]}->{ALL}++;
+                $dists{$row->[4]}->{IXL}++  if($dists{$row->[4]}->{VER} eq $row->[5]);
+            }
         }
     }
 
     my @versions = sort {versioncmp($b,$a)} keys %perls;
 
     $self->{parent}->_log("stats hash built");
+
+    $self->_report_interesting(\%dists);
 
 ## GENERATE DISTRIBUTION MATRIX
 
@@ -540,91 +559,215 @@ Generates the interesting stats page
 =cut
 
 sub _report_interesting {
-    my $self = shift;
+    my $self  = shift;
+    my $dists = shift;
     my %tvars;
 
     $self->{parent}->_log("building interesting page");
 
-    my @bydist = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT count(id) AS count,dist FROM cpanstats WHERE state != 'cpan' GROUP BY dist ORDER BY count DESC LIMIT 20");
-    my @byvers = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT count(id) AS count,dist,version FROM cpanstats WHERE state != 'cpan' GROUP BY dist,version ORDER BY count DESC LIMIT 20");
+    my (@bydist,@byvers);
+    my $inx = 20;
+    for my $dist (sort {$dists->{$b}{ALL} <=> $dists->{$a}{ALL}} keys %$dists) {
+        push @bydist, [$dists->{$dist}{ALL},$dist];
+        last    if(--$inx <= 0);
+    }
+    $inx = 20;
+    for my $dist (sort {$dists->{$b}{IXL} <=> $dists->{$a}{IXL}} keys %$dists) {
+        push @byvers, [$dists->{$dist}{IXL},$dist,$dists->{$dist}{VER}];
+        last    if(--$inx <= 0);
+    }
+
+    #my @bydist = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT sum(pass + fail + na + unknown) AS count,dist FROM release_data WHERE oncpan=1 GROUP BY dist ORDER BY count DESC LIMIT 10");
+    #my @bydist = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT count(id) AS count,dist FROM cpanstats WHERE state != 'cpan' GROUP BY dist ORDER BY count DESC LIMIT 10");
+    #$self->{parent}->_log(".. built most reports by dist");
+    #my @byvers = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT sum(pass + fail + na + unknown) AS count,dist,version FROM release_data WHERE oncpan=1 GROUP BY dist,version ORDER BY count DESC LIMIT 10");
+    #my @byvers = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT count(id) AS count,dist,version FROM cpanstats WHERE state != 'cpan' GROUP BY dist,version ORDER BY count DESC LIMIT 10");
+    #$self->{parent}->_log(".. built most reports by dist, version");
 
     $tvars{BYDIST} = \@bydist;
     $tvars{BYVERS} = \@byvers;
 
-    my (%index,@posters,@entries,@reports);
-    my %counter = ( posters => 0, entries => 0, reports => 0 );
-    my ($last_posters,$last_entries,$last_reports);
-    my ($posters_count,$entries_count,$reports_count) = (0,0,0);
+    my %index = (
+        count   => { posters => 0,  entries => 0,  reports => 0  },
+        xrefs   => { posters => {}, entries => {}, reports => {} },
+        xlast   => { posters => [], entries => [], reports => [] },
+    );
 
-    my $next = $self->{parent}->{CPANSTATS}->iterator('array','SELECT * FROM cpanstats ORDER BY id');
+    my $last = 0;
+    my @counts = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT i.*,c.* FROM interesting as i inner join cpanstats as c on c.id=i.id ORDER BY i.type,i.count");
+    for my $count (@counts) {
+        my ($type,$index,$id,@row) = @$count;
+        unshift @row, 0;
+
+        $last = $id if($last < $id);
+
+        $index{count}->{$type} = $index;
+        $index{xlast}->{$type} = \@row;
+        $index{xrefs}->{$type}->{$index} = \@row    if($index == 1 || ($index % 500000) == 0);
+    }
+
+    my $next = $self->{parent}->{CPANSTATS}->iterator('array',"SELECT * FROM cpanstats WHERE id > $last ORDER BY id");
     while(my $row = $next->()) {
         my @row = (0, @$row);
-        $counter{posters} = $row[1];
-        if($counter{posters} == 1 || ($counter{posters} % 500000) == 0) {
-            $index{posters}->{$row[1]} = $counter{posters};
-            push @posters, \@row;
-        } else {
-            $posters_count = $counter{posters};
-            $last_posters = \@row;
-        }
 
-        $counter{entries}++;
-        if($counter{entries} == 1 || ($counter{entries} % 500000) == 0) {
-            $index{entries}->{$row[1]} = $counter{entries};
-            push @entries, \@row;
-        } else {
-            $entries_count = $counter{entries};
-            $last_entries = \@row;
-        }
+        $index{count}->{posters} = $row[1];
+        $index{count}->{entries}++;
+        $index{count}->{reports}++  if($row[2] ne 'cpan');
 
-        if($row[2] ne 'cpan') {
-            $counter{reports}++;
-            if(($counter{reports} == 1 || ($counter{reports} % 500000) == 0)) {
-                $index{reports}->{$row[1]} = $counter{reports};
-                push @reports, \@row;
+        for my $type (qw(posters entries reports)) {
+            next    if($type eq 'reports' && $row[2] eq 'cpan');
+            if($index{count}->{$type} == 1 || ($index{count}->{$type} % 500000) == 0) {
+                $index{xrefs}->{$type}->{$index{count}->{$type}} = \@row;
             } else {
-                $reports_count = $counter{reports};
-                $last_reports = \@row;
-            }
+                $index{xlast}->{$type} = \@row;
+            }       
+        }        
+    }
+
+    for my $type (qw(posters entries reports)) {
+        $index{xrefs}->{$type}->{$index{count}->{$type}} = $index{xlast}->{$type};
+
+        for my $key (sort {$a <=> $b} keys %{ $index{xrefs}->{$type} }) {
+            my @row = @{ $index{xrefs}->{$type}{$key} };
+
+            $row[0] = $key;
+            $row[2] = uc $row[2];
+            $row[4] = $self->_tester_name($row[4])  if($row[4] =~ /\@/);
+            push @{ $tvars{ uc($type) } }, \@row;
         }
     }
 
-    $index{posters}->{$last_posters->[1]} = $posters_count;
-    $index{entries}->{$last_entries->[1]} = $entries_count;
-    $index{reports}->{$last_reports->[1]} = $reports_count;
-
-    push @posters, $last_posters;
-    push @entries, $last_entries;
-    push @reports, $last_reports;
-
-    my (@postersx,@entriesx,@reportsx);
-    for my $row (@posters) {
-        $row->[0] = $index{posters}{$row->[1]};
-        $row->[4] = $self->_tester_name($row->[4])  if($row->[4] =~ /\@/);
-        my @this = @$row;
-        push @postersx, \@this;
-    }
-    for my $row (@entries) {
-        $row->[0] = $index{entries}{$row->[1]};
-        $row->[4] = $self->_tester_name($row->[4])  if($row->[4] =~ /\@/);
-        my @this = @$row;
-        push @entriesx, \@this;
-    }
-    for my $row (@reports) {
-        $row->[0] = $index{reports}{$row->[1]};
-        $row->[4] = $self->_tester_name($row->[4])  if($row->[4] =~ /\@/);
-        my @this = @$row;
-        push @reportsx, \@this;
-    }
-
-    my @headings = ('count','id','state','postdate','tester','dist','version','platform','perl','osname','osvers','fulldate');
-
+    my @headings = qw( count id grade postdate tester dist version platform perl osname osvers fulldate );
     $tvars{HEADINGS} = \@headings;
-    $tvars{POSTERS}  = \@postersx;
-    $tvars{ENTRIES}  = \@entriesx;
-    $tvars{REPORTS}  = \@reportsx;
-
     $self->_writepage('interest',\%tvars);
+
+    # store for future reference
+    $self->{parent}->{CPANSTATS}->do_query("DELETE FROM interesting");
+    for my $type (qw(posters entries reports)) {
+        for my $key (keys %{ $index{xrefs}->{$type} }) {
+            $self->{parent}->{CPANSTATS}->do_query("INSERT INTO interesting (type,count,id) VALUES (?,?,?)",
+                $type, $key, $index{xrefs}{$type}{$key}[1] );
+        }
+    }
+}
+
+=item * _report_cpan
+
+Generates the statistic pages that relate specifically to CPAN.
+
+=cut
+
+sub _report_cpan {
+    my $self = shift;
+    my (%authors,%distros,%counts,%tvars);
+
+    $self->{parent}->_log("building cpan trends page");
+
+    my $next = $self->{parent}->{CPANSTATS}->iterator('hash',"SELECT * FROM uploads ORDER BY released");
+    while(my $row = $next->()) {
+        next    if($row->{dist} eq 'perl');
+
+        my $date = _parsedate($row->{released});
+        $authors{$row->{author}}{count}++;
+        $distros{$row->{dist}}{count}++;
+        $authors{$row->{author}}{dist}{$row->{dist}}++;
+        $authors{$row->{author}}{dists}++   if($authors{$row->{author}}{dist}{$row->{dist}} == 1);
+
+        $counts{$date}{authors}{$row->{author}}++;
+        $counts{$date}{distros}{$row->{dist}}++;
+
+        $counts{$date}{newauthors}++  if($authors{$row->{author}}{count} == 1);
+        $counts{$date}{newdistros}++  if($distros{$row->{dist}}{count} == 1);
+    }
+
+    my $stat6  = IO::File->new('stats6.txt','w+')     or die "Cannot write to file [stats6.txt]: $!\n";
+#    my $stat7  = IO::File->new('stats7.txt','w+')     or die "Cannot write to file [stats7.txt]: $!\n";
+    my $stat12 = IO::File->new('stats12.txt','w+')    or die "Cannot write to file [stats12.txt]: $!\n";
+#    my $stat13 = IO::File->new('stats13.txt','w+')    or die "Cannot write to file [stats13.txt]: $!\n";
+
+    for my $date (sort keys %counts) {
+        my $authors = scalar(keys %{ $counts{$date}{authors} });
+        my $distros = scalar(keys %{ $counts{$date}{distros} });
+
+        $counts{$date}{newauthors} ||= 0;
+        $counts{$date}{newdistros} ||= 0;
+
+        print $stat6  "$date,$authors,$distros\n";
+        print $stat12 "$date,$counts{$date}{newauthors},$counts{$date}{newdistros}\n";
+
+#        print $stat6  "$date,$authors\n";
+#        print $stat7  "$date,$distros\n";
+#        print $stat12 "$date,$counts{$date}{newauthors}\n";
+#        print $stat13 "$date,$counts{$date}{newdistros}\n";
+    }
+
+    $stat6->close;
+#    $stat7->close;
+    $stat12->close;
+#    $stat13->close;
+
+    $self->_writepage('trends',\%tvars);
+
+
+    $self->{parent}->_log("building cpan leader page");
+
+    my $query = 'SELECT x.author,COUNT(x.dist) AS count FROM ixlatest AS x '.
+                'INNER JOIN uploads AS u ON u.dist=x.dist AND u.version=x.version '.
+		"WHERE u.type != 'backpan' GROUP BY x.author";
+    my @latest = $self->{parent}->{CPANSTATS}->get_query('hash',$query);
+    my (@allcurrent,@alluploads,@allrelease,@alldistros);
+    my $inx = 1;
+    for my $latest (sort {$b->{count} <=> $a->{count}} @latest) {
+        push @allcurrent, {inx => $inx++, count => $latest->{count}, name => $latest->{author}};
+        last    if($inx > 20);
+    }
+
+    $inx = 1;
+    for my $author (sort {$authors{$b}{dists} <=> $authors{$a}{dists}} keys %authors) {
+        push @alluploads, {inx => $inx++, count => $authors{$author}{dists}, name => $author};
+        last    if($inx > 20);
+    }
+
+    $inx = 1;
+    for my $author (sort {$authors{$b}{count} <=> $authors{$a}{count}} keys %authors) {
+        push @allrelease, {inx => $inx++, count => $authors{$author}{count}, name => $author};
+        last    if($inx > 20);
+    }
+
+    $inx = 1;
+    for my $distro (sort {$distros{$b}{count} <=> $distros{$a}{count}} keys %distros) {
+        push @alldistros, {inx => $inx++, count => $distros{$distro}{count}, name => $distro};
+        last    if($inx > 20);
+    }
+
+    $tvars{allcurrent} = \@allcurrent;
+    $tvars{alluploads} = \@alluploads;
+    $tvars{allrelease} = \@allrelease;
+    $tvars{alldistros} = \@alldistros;
+
+    $self->_writepage('leadercpan',\%tvars);
+
+
+    $self->{parent}->_log("building cpan interesting stats page");
+
+    $tvars{authors}{total} = _count_mailrc();
+    my @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(distinct author) FROM uploads");
+    $tvars{authors}{active}   = $rows[0]->[0];
+    $tvars{authors}{inactive} = $tvars{authors}{total} - $rows[0]->[0];
+
+    @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(distinct dist) FROM uploads WHERE type != 'backpan'");
+    $tvars{distros}{uploaded1} = $rows[0]->[0];
+    @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(distinct dist) FROM uploads");
+    $tvars{distros}{uploaded2} = $rows[0]->[0];
+    $tvars{distros}{uploaded3} = $tvars{distros}{uploaded2} - $tvars{distros}{uploaded1};
+
+    @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(*) FROM uploads WHERE type != 'backpan'");
+    $tvars{distros}{uploaded4} = $rows[0]->[0];
+    @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(*) FROM uploads");
+    $tvars{distros}{uploaded5} = $rows[0]->[0];
+    $tvars{distros}{uploaded6} = $tvars{distros}{uploaded5} - $tvars{distros}{uploaded4};
+
+    $self->_writepage('statscpan',\%tvars);
 }
 
 =item * _writepage
@@ -769,6 +912,25 @@ sub _ext {
     return 'nd' if($num == 2 || $num == 22);
     return 'rd' if($num == 3 || $num == 23);
     return 'th';
+}
+
+sub _parsedate {
+    my $time = shift;
+    my @time = localtime($time);
+    return sprintf "%04d%02d", $time[5]+1900,$time[4]+1;
+}
+
+sub _count_mailrc {
+    my $count = 0;
+
+    my $fh  = IO::File->new('data/01mailrc.txt','r')     or die "Cannot read file [data/01mailrc.txt]: $!\n";
+    while(<$fh>) {
+        last	if(/^alias\s*DBIML/);
+        $count++;
+    }
+    $fh->close;
+
+    return $count;
 }
 
 q("Will code for Guinness!");

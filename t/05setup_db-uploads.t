@@ -4,13 +4,12 @@ use strict;
 use warnings;
 use Test::More tests => 1;
 use DBI;
-use DBD::SQLite;
 use File::Spec;
 use File::Path;
 use File::Basename;
 
-my $f = File::Spec->catfile('t','_DBDIR','test2.db');
-unlink $f if -f $f;
+my $f = File::Spec->catfile('t','_DBDIR','test.db');
+#unlink $f if -f $f;
 mkpath( dirname($f) );
 
 my $dbh = DBI->connect("dbi:SQLite:dbname=$f", '', '', {AutoCommit=>1});

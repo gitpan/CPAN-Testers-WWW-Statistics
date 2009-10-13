@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 33;
+use Test::More tests => 29;
 use CPAN::Testers::WWW::Statistics;
 
 use lib 't';
@@ -21,14 +21,13 @@ foreach my $k ( qw/
     address
     logclean
     tocopy
-    ranges
 / ){
   my $label = "[$k]";
   SKIP: {
     ok( $obj->can($k), "$label can" )
 	or skip "'$k' attribute missing", 3;
     isnt( $obj->$k(), undef, "$label has default" );
-    is( $obj->$k(123), $obj, "$label set" ); # chained, so returns object, not value.
+    is( $obj->$k(123), 123, "$label set" );
     is( $obj->$k, 123, "$label get" );
   };
 }
@@ -42,7 +41,7 @@ foreach my $k ( qw/
     ok( $obj->can($k), "$label can" )
 	or skip "'$k' attribute missing", 3;
     is( $obj->$k(), undef, "$label has no default" );
-    is( $obj->$k(123), $obj, "$label set" ); # chained, so returns object, not value.
+    is( $obj->$k(123), 123, "$label set" );
     is( $obj->$k, 123, "$label get" );
   };
 }
