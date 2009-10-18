@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.68';
+$VERSION = '0.69';
 
 #----------------------------------------------------------------------------
 
@@ -99,6 +99,20 @@ sub new {
         die "Cannot configure $db database\n" unless($self->{$db});
     }
 
+    my %OSNAMES;
+    if($cfg->SectionExists('OSNAMES')) {
+        $OSNAMES{$_} = $cfg->val('OSNAMES',$_)  for($cfg->Parameters('OSNAMES'));
+    }
+
+    my @rows = $self->{CPANSTATS}->get_query('array',q{SELECT DISTINCT(osname) FROM cpanstats WHERE state IN ('pass','fail','na','unknown') ORDER BY osname});
+    for my $row (@rows) {
+        my $oscode = lc $row->[0];
+        $oscode =~ s/[^\w]+//g;
+        $OSNAMES{$oscode} ||= uc($row->[0]);
+    }
+    $self->osnames( \%OSNAMES );
+
+
     my @TOCOPY = split("\n", $cfg->val('TOCOPY','LIST'));
     $self->tocopy(\@TOCOPY);
 
@@ -142,13 +156,17 @@ Method to facilitate the creation of the statistics graphs.
 Returns the specific date range array reference, as held in the configuration
 file.
 
+=item * osname
+
+Returns the print form of a recorded OS name.
+
 =back
 
 =cut
 
 __PACKAGE__->mk_accessors(
     qw( directory templates database address builder logfile logclean 
-        copyright tocopy));
+        copyright tocopy osnames));
 
 sub make_pages {
     my $self = shift;
@@ -175,6 +193,12 @@ sub ranges {
     my @RANGES = $section eq 'NONE' ? '00000000-99999999'
                     : split("\n", $self->{cfg}->val($section,'LIST'));
     return \@RANGES;
+}
+
+sub osname {
+    my ($self,$name) = @_;
+    my $osnames = $self->osnames();
+    return $osnames->{$name} || $name;
 }
 
 # -------------------------------------
