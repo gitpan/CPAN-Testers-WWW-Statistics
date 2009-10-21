@@ -1,5 +1,16 @@
 Revision history for CPAN-Testers-WWW-Statistics
 
+0.70    21/10/2009
+	- added functionality to use the new osname table.
+	- further work on matrices:
+	  - added totals to X & Y axis
+	  - sorted on Y axis values
+	  - added wide format pages to each matrix
+	- slight reorganisation of failure tables.
+	- changed named anchors as some browsers don't rendering them 
+	  correctly.
+	- added table for monthly OS counts.
+
 0.69	18/10/2009
 	- hash passing depreciated in favour of object variables.
 	- distribution and reports matrices merged, now split between OS name
