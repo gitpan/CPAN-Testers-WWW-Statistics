@@ -1,10 +1,11 @@
 package CPAN::Testers::WWW::Statistics;
 
+use 5.006; #due to 'warnings' pragma
 use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.73';
+$VERSION = '0.74';
 
 #----------------------------------------------------------------------------
 
