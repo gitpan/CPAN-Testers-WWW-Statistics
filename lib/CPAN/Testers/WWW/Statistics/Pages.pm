@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.80';
+$VERSION = '0.81';
 
 #----------------------------------------------------------------------------
 
@@ -824,13 +824,13 @@ sub _build_monthly_stats {
         my $sql = sprintf $query, $type, $type;
         my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
         while(my $row = $next->()) {
-            $stats{$row->{postdate}}{count}         += $row->{count};
             $self->{stats}{$row->{postdate}}{$type}{$row->{$type}} = 1;
             $row->{$type} = $self->{parent}->osname($row->{$type})  if($type eq 'osname');
             push @{$stats{$row->{postdate}}{list}}, "[$row->{count}] $row->{$type}";
         }
 
         for my $date (sort {$b <=> $a} keys %stats) {
+            $stats{$date}{count} = scalar(@{$stats{$date}{list}});
             push @{$tvars{STATS}}, [$date,$stats{$date}{count},join(', ',@{$stats{$date}{list}})];
         }
         $self->_writepage($templates{$type},\%tvars);
@@ -845,12 +845,12 @@ sub _build_monthly_stats {
         while(my $row = $next->()) {
             my $name = $self->_tester_name($row->{tester});
             $testers{$name}                         += $row->{count};
-            $stats{$row->{postdate}}{count}         += $row->{count};
             $stats{$row->{postdate}}{list}{$name}   += $row->{count};
             $self->{stats}{$row->{postdate}}{$type}{$row->{$type}} = 1;
         }
 
         for my $date (sort {$b <=> $a} keys %stats) {
+            $stats{$date}{count} = keys %{$stats{$date}{list}};
             push @{$tvars{STATS}}, [$date,$stats{$date}{count},
                 join(', ',  
                     map {"[$stats{$date}{list}{$_}] $_"} 
@@ -997,10 +997,18 @@ sub _build_failure_rates {
 
     $self->{parent}->_log("building failure rates");
 
-    # calculate worst failure rates - by failure count
+    # select worst failure rates - latest version, and ignoring backpan only.
     my %worst;
     for my $dist (keys %{ $self->{fails} }) {
         my ($version) = sort {versioncmp($b,$a)} keys %{$self->{fails}{$dist}};
+
+        my $query = 
+		    'SELECT x.author FROM ixlatest AS x '. 
+            'INNER JOIN uploads AS u ON u.dist=x.dist AND u.version=x.version '.
+		    "WHERE u.type != 'backpan' AND x.dist=? AND x.version=?";
+    	my @rows = $self->{parent}->{CPANSTATS}->get_query('hash',$query,$dist,$version);
+	    next	unless(@rows);
+
         $worst{"$dist-$version"} = $self->{fails}->{$dist}{$version};
         $worst{"$dist-$version"}->{dist}   = $dist;
         $worst{"$dist-$version"}->{pcent}  = $self->{fails}{$dist}{$version}{fail} 
@@ -1008,7 +1016,16 @@ sub _build_failure_rates {
                                                 : 0.00;
         $worst{"$dist-$version"}->{pass} ||= 0;
         $worst{"$dist-$version"}->{fail} ||= 0;
+        next    if($worst{"$dist-$version"}->{post} && !$rows[0]->{released});
+
+        my @post = localtime($rows[0]->{released});
+        $worst{"$dist-$version"}->{post} = sprintf "%04d%02d", $post[5]+1900, $post[4]+1;
     }
+
+    $self->{parent}->_log("worst = " . scalar(keys %worst) . " entries");
+    $self->{parent}->_log("building failure counts");
+
+    # calculate worst failure rates - by failure count
     my $count = 1;
     for my $dist (sort {$worst{$b}->{fail} <=> $worst{$a}->{fail} || $worst{$b}->{pcent} <=> $worst{$a}->{pcent}} keys %worst) {
         last unless($worst{$dist}->{fail});
@@ -1026,6 +1043,8 @@ sub _build_failure_rates {
     $self->_writepage('wdists',\%tvars);
     undef %tvars;
 
+    $self->{parent}->_log("building failure pecentages");
+
     # calculate worst failure rates - by percentage
     $count = 1;
     for my $dist (sort {$worst{$b}->{pcent} <=> $worst{$a}->{pcent} || $worst{$b}->{fail} <=> $worst{$a}->{fail}} keys %worst) {
@@ -1038,6 +1057,52 @@ sub _build_failure_rates {
     $tvars{DATABASE} = $self->{DATABASE2};
     $self->_writepage('wpcent',\%tvars);
     undef %tvars;
+
+    # now we do as above but for the last 6 months
+
+    my @recent = localtime(time() - 15778463); # 6 months ago
+    my $recent = sprintf "%04d%02d", $recent[5]+1900, $recent[4]+1;
+    
+    for my $dist (keys %worst) {
+        next    if($worst{$dist}->{post} ge $recent);
+        delete $worst{$dist};
+    }
+
+    $self->{parent}->_log("building recent failure counts");
+
+    # calculate worst failure rates - by failure count
+    $count = 1;
+    for my $dist (sort {$worst{$b}->{fail} <=> $worst{$a}->{fail} || $worst{$b}->{pcent} <=> $worst{$a}->{pcent}} keys %worst) {
+        last unless($worst{$dist}->{fail});
+        my $pcent = sprintf "%3.2f%%", $worst{$dist}->{pcent};
+        push @{$tvars{WORST}}, [$count++, $worst{$dist}->{fail}, $dist, $worst{$dist}->{post}, $worst{$dist}->{pass}, $worst{$dist}->{total}, $pcent, $worst{$dist}->{dist}];
+        last    if($count > 100);
+    }
+
+    $database  = $self->{parent}->database;
+    $mtime = (stat($database))[9];
+    @ltime = localtime($mtime);
+    $self->{DATABASE2} = sprintf "%d%s %s %d", $ltime[3],_ext($ltime[3]),$month{$ltime[4]},$ltime[5]+1900;
+
+    $tvars{DATABASE} = $self->{DATABASE2};
+    $self->_writepage('wdists-recent',\%tvars);
+    undef %tvars;
+
+    $self->{parent}->_log("building recent failure pecentages");
+
+    # calculate worst failure rates - by percentage
+    $count = 1;
+    for my $dist (sort {$worst{$b}->{pcent} <=> $worst{$a}->{pcent} || $worst{$b}->{fail} <=> $worst{$a}->{fail}} keys %worst) {
+        last unless($worst{$dist}->{fail});
+        my $pcent = sprintf "%3.2f%%", $worst{$dist}->{pcent};
+        push @{$tvars{WORST}}, [$count++, $worst{$dist}->{fail}, $dist, $worst{$dist}->{post}, $worst{$dist}->{pass}, $worst{$dist}->{total}, $pcent, $worst{$dist}->{dist}];
+        last    if($count > 100);
+    }
+
+    $tvars{DATABASE} = $self->{DATABASE2};
+    $self->_writepage('wpcent-recent',\%tvars);
+
+    $self->{parent}->_log("done building failure rates");
 }
 
 sub _build_performance_stats {
