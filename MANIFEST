@@ -1,16 +1,17 @@
 Changes
+data/01mailrc.txt
 Makefile.PL
-MANIFEST			This list of files
+MANIFEST
 META.yml
 README
 bin/addresses.pl
 bin/cpanstats-writegraphs
 bin/cpanstats-writepages
 bin/getmailrc.pl
-data/01mailrc.txt
 examples/cpanstats.sql
 examples/cpanstats.sh
 examples/example-settings.ini
+examples/reset.sh
 lib/CPAN/Testers/WWW/Statistics.pm
 lib/CPAN/Testers/WWW/Statistics/Graphs.pm
 lib/CPAN/Testers/WWW/Statistics/Pages.pm
@@ -60,6 +61,7 @@ templates/interest.html
 templates/layout.html
 templates/layout-wide.html
 templates/leadercpan.html
+templates/missing.html
 templates/month.html
 templates/mperls.html
 templates/mplatforms.html
