@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.86';
+$VERSION = '0.87';
 
 #----------------------------------------------------------------------------
 
@@ -41,8 +41,10 @@ use Data::Dumper;
 use File::Basename;
 use File::Copy;
 use File::Path;
+use File::Slurp;
 use HTML::Entities;
 use IO::File;
+use JSON;
 use Sort::Versions;
 use Template;
 #use Time::HiRes qw ( time );
@@ -264,7 +266,7 @@ sub _build_stats {
     my @date = localtime($d2);
     my $date = sprintf "%04d%02d%02d", $date[5]+1900, $date[4]+1, $date[3];
 
-    my @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(*) FROM cpanstats WHERE state IN ('pass','fail','na','unknown') AND fulldate like '$date%'");
+    my @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(*) FROM cpanstats WHERE type = 2 AND fulldate like '$date%'");
     $self->{rates}{report} = $rows[0]->[0] ? $ADAY / $rows[0]->[0] * 1000 : $ADAY / 10000 * 1000;
     @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(*) FROM uploads WHERE released > $d2 and released < $d1");
     $self->{rates}{distro} = $rows[0]->[0] ? $ADAY / $rows[0]->[0] * 1000 : $ADAY / 60 * 1000;
@@ -272,50 +274,57 @@ sub _build_stats {
     $self->{rates}{report} = 1000 if($self->{rates}{report} < 1000);
     $self->{rates}{distro} = 1000 if($self->{rates}{distro} < 1000);
 
-    $self->{parent}->_log("building dist hash");
+    my (%testers,$store);
+    my $lastid = 0;
+    my $storage = $self->{parent}->storage();
+    if($storage && -f $storage) {
+        $self->{parent}->_log("building dist hash from storage");
+        my $data = read_file($storage);
+        $store = decode_json($data);
+        $self->{$_} = $store->{$_}  for(qw(stats dists fails perls pass platform osys osname counts build count xrefs xlast));
+        %testers = %{$store->{testers}};
+        $lastid = $store->{lastid};
+    } else {
+        $self->{parent}->_log("building dist hash from scratch");
 
-    my $iterator = $self->{parent}->{CPANSTATS}->iterator('hash',"SELECT dist,version FROM ixlatest");
-    while(my $row = $iterator->()) {
-        $self->{dists}{$row->{dist}}->{ALL} = 0;
-        $self->{dists}{$row->{dist}}->{IXL} = 0;
-        $self->{dists}{$row->{dist}}->{VER} = $row->{version};
-    }
+        my $iterator = $self->{parent}->{CPANSTATS}->iterator('hash',"SELECT dist,version FROM ixlatest");
+        while(my $row = $iterator->()) {
+            $self->{dists}{$row->{dist}}->{ALL} = 0;
+            $self->{dists}{$row->{dist}}->{IXL} = 0;
+            $self->{dists}{$row->{dist}}->{VER} = $row->{version};
+        }
 
-    $self->{parent}->_log("building stats hash");
+        $self->{parent}->_log("building stats hash");
 
-    $self->{count}{$_} ||= 0    for(qw(posters entries reports distros));
-    #$self->{count} = { posters => 0,  entries => 0,  reports => 0, distros => 0  },
-    $self->{xrefs} = { posters => {}, entries => {}, reports => {} },
-    $self->{xlast} = { posters => [], entries => [], reports => [] },
+        $self->{count}{$_} ||= 0    for(qw(posters entries reports distros));
+        #$self->{count} = { posters => 0,  entries => 0,  reports => 0, distros => 0  },
+        $self->{xrefs} = { posters => {}, entries => {}, reports => {} },
+        $self->{xlast} = { posters => [], entries => [], reports => [] },
 
-    my $file = $self->{parent}->builder();
-    if($file && -f $file) {
-        if(my $fh = IO::File->new($file,'r')) {
-            while(<$fh>) {
-                my ($d,$r,$p) = /(\d+),(\d+),(\d+)/;
-                next    unless($d);
-                $self->{build}{$d}->{webtotal}  = $r;
-                $self->{build}{$d}->{webunique} = $p;
+        my $file = $self->{parent}->builder();
+        if($file && -f $file) {
+            if(my $fh = IO::File->new($file,'r')) {
+                while(<$fh>) {
+                    my ($d,$r,$p) = /(\d+),(\d+),(\d+)/;
+                    next    unless($d);
+                    $self->{build}{$d}->{webtotal}  = $r;
+                    $self->{build}{$d}->{webunique} = $p;
+                }
+                $fh->close;
             }
-            $fh->close;
         }
     }
 
     # 0,  1,    2,     3,        4,      5     6,       7,        8,    9,      10      11        12
     # id, guid, state, postdate, tester, dist, version, platform, perl, osname, osvers, fulldate, type
 
-    my %testers;
-    $iterator = $self->{parent}->{CPANSTATS}->iterator('array',"SELECT * FROM cpanstats ORDER BY id");
+    $self->{parent}->_log("building dist hash from $lastid");
+    my $iterator = $self->{parent}->{CPANSTATS}->iterator('array',"SELECT * FROM cpanstats WHERE type = 2 AND id > $lastid ORDER BY id");
     while(my $row = $iterator->()) {
-        next    if($row->[2] =~ /:invalid/);
-        next    if($row->[12] > 2);
-
         $row->[8] =~ s/\s.*//;  # only need to know the main release
+        $lastid = $row->[0];
 
-        if($row->[2] eq 'cpan') {
-            $self->{stats}{$row->[3]}{pause}++;
-            $self->{fails}{$row->[5]}{$row->[6]}{post} = $row->[3];
-        } else {
+        {
             my $osname = $self->{parent}->osname($row->[9]);
             my $name   = $self->_tester_name($row->[4]);
 
@@ -324,10 +333,19 @@ sub _build_stats {
             #$self->{stats}{$row->[3]}{dist    }{$row->[5]}++;
             #$self->{stats}{$row->[3]}{version }{$row->[6]}++;
 
-            # check failure rates
-            $self->{fails}{$row->[5]}{$row->[6]}{fail}++    if($row->[2] eq 'fail');
-            $self->{fails}{$row->[5]}{$row->[6]}{pass}++    if($row->[2] eq 'pass');
-            $self->{fails}{$row->[5]}{$row->[6]}{total}++;
+            # check distribution tallies
+            if(defined $self->{dists}{$row->[5]}) {
+                $self->{dists}{$row->[5]}{ALL}++;
+
+                if($self->{dists}{$row->[5]}->{VER} eq $row->[6]) {
+                    $self->{dists}{$row->[5]}{IXL}++;
+
+                    # check failure rates
+                    $self->{fails}{$row->[5]}{$row->[6]}{fail}++    if($row->[2] eq 'fail');
+                    $self->{fails}{$row->[5]}{$row->[6]}{pass}++    if($row->[2] eq 'pass');
+                    $self->{fails}{$row->[5]}{$row->[6]}{total}++;
+                }
+            }
 
             # build matrix stats
             my $perl = $row->[8];
@@ -351,11 +369,6 @@ sub _build_stats {
             $testers{$name}{last}    = $row->[3];
             $self->{counts}{$row->[3]}{testers}{$name} = 1;
 
-            if(defined $self->{dists}{$row->[5]}) {
-                $self->{dists}{$row->[5]}{ALL}++;
-                $self->{dists}{$row->[5]}{IXL}++  if($self->{dists}{$row->[5]}{VER} eq $row->[6]);
-            }
-
             my $day = substr($row->[11],0,8);
             $self->{build}{$day}{reports}++ if(defined $self->{build}{$day});
         }
@@ -373,6 +386,14 @@ sub _build_stats {
         } else {
             $self->{xlast}{$type} = \@row;
         }
+    }
+
+    if($storage) {
+        $store->{$_} = $self->{$_}  for(qw(stats dists fails perls pass platform osys osname counts build count xrefs xlast));
+        $store->{testers} = \%testers;
+        $store->{lastid} = $lastid;
+        my $data = encode_json($store);
+        overwrite_file($storage,$data);
     }
 
     for my $tester (keys %testers) {
@@ -457,6 +478,8 @@ sub _report_cpan {
 
         $self->{counts}{$date}{newauthors}++  if($authors{$row->{author}}{count} == 1);
         $self->{counts}{$date}{newdistros}++  if($distros{$row->{dist}}{count} == 1);
+
+        $self->{stats}{$date}{pause}++;
     }
 
     my $directory = $self->{parent}->directory;
@@ -616,7 +639,7 @@ sub _report_cpan {
             $stats{$type}{$count}{date} = $date;
             push @list, $stats{$type}{$count};
         }
-        $tvars{$type} = \@list	if(@list);
+        $tvars{$type} = \@list  if(@list);
     }
 
     $self->_writepage('statscpan',\%tvars);
@@ -632,7 +655,7 @@ sub _missing_in_action {
     while(<$fh>) {
         chomp;
         my ($pauseid,$timestamp,$reason) = /^([a-z]+)[ \t]+([^+]+\+0[01]00) (.*)/i;
-        next	unless($pauseid);
+        next    unless($pauseid);
         $missing{$pauseid}{timestamp} = $timestamp;
         $missing{$pauseid}{reason} = $reason;
     }
@@ -642,7 +665,7 @@ sub _missing_in_action {
         push @missing, { pauseid => $pauseid, timestamp => $missing{$pauseid}{timestamp},  reason => $missing{$pauseid}{reason} };
     }
 
-    $tvars{missing} = \@missing	if(@missing);
+    $tvars{missing} = \@missing if(@missing);
     $self->_writepage('missing',\%tvars);
 }
 
@@ -909,7 +932,7 @@ sub _build_monthly_stats {
     $self->{parent}->_log("building monthly tables");
 
     my $query = q!SELECT postdate,%s,count(id) AS count FROM cpanstats ! .
-                q!WHERE state IN ('pass','fail','unknown','na') ! .
+                q!WHERE type = 2 ! .
                 q!GROUP BY postdate,%s ORDER BY postdate,count DESC!;
     for my $type (qw(platform osname perl)) {
         $self->{parent}->_log("building monthly $type table");
@@ -939,7 +962,8 @@ sub _build_monthly_stats {
             my $name = $self->_tester_name($row->{tester});
             $testers{$name}                         += $row->{count};
             $stats{$row->{postdate}}{list}{$name}   += $row->{count};
-            $self->{stats}{$row->{postdate}}{$type}{$row->{$type}} = 1;
+            #$self->{stats}{$row->{postdate}}{$type}{$row->{$type}} = 1;
+            $self->{stats}{$row->{postdate}}{$type}{$name} = 1;
         }
 
         for my $date (sort {$b <=> $a} keys %stats) {
