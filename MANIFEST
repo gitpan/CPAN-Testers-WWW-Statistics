@@ -47,6 +47,8 @@ t/data/21config09.ini
 t/data/21config10.ini
 t/data/21config11.ini
 t/data/addresses.txt
+t/data/cpanstats-test.json
+t/data/missing-in-action.txt
 t/expected.zip
 templates/archive.html
 templates/cgi-bin/cpanmail.cgi
@@ -63,6 +65,7 @@ templates/interest.html
 templates/layout.html
 templates/layout-wide.html
 templates/leadercpan.html
+templates/leaderos.html
 templates/missing.html
 templates/month.html
 templates/mperls.html
@@ -79,6 +82,7 @@ templates/public/footer.html
 templates/public/quote.html
 templates/response.html
 templates/statscpan.html
+templates/terms.html
 templates/testers.html
 templates/trends.html
 templates/wdists.html

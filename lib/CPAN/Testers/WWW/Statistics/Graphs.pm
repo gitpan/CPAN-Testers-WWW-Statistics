@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.88';
+$VERSION = '0.89';
 
 #----------------------------------------------------------------------------
 
@@ -88,7 +88,7 @@ my %COLOURS = (
 );
 
 my @COLOURS = map {sprintf "%s%s%s", _dec2hex($COLOURS{$_}->[0]),_dec2hex($COLOURS{$_}->[1]),_dec2hex($COLOURS{$_}->[2])} qw(red blue green orange purple grey);
-my @MONTH   = qw( - JANUARY FEBURARY MARCH APRIL MAY JUNE JULY AUGUST SEPTEMBER OCTOBER NOVEMBER DECEMBER );
+my @MONTH   = qw( - JANUARY FEBRUARY MARCH APRIL MAY JUNE JULY AUGUST SEPTEMBER OCTOBER NOVEMBER DECEMBER );
 my @MONTHS  = map {my @x = split(//); my $x = join(' ',@x); [split(//,$x)]} @MONTH;
 
 # -------------------------------------
@@ -138,12 +138,13 @@ Method to facilitate the creation of graphs.
 
 sub create {
     my $self = shift;
+    my $status = 1; # assume failure
 
     my $directory = $self->{parent}->directory;
     my $results   = "$directory/stats";
     mkpath($results);
 
-    $self->{parent}->_log("start");
+    $self->{parent}->_log("Graphs:create start");
 
     for my $g (@graphs) {
         my $ranges = $self->{parent}->ranges($g->[3]);
@@ -182,11 +183,13 @@ sub create {
                     $file = "$results/$g->[0].png";
                     _save_content($res,$file);
                 }
+                $status = 0;
             }
         }
     }
 
     $self->{parent}->_log("finish");
+    return $status;
 }
 
 sub _save_content {
@@ -388,10 +391,9 @@ F<http://wiki.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2005-2010 Barbie for Miss Barbell Productions.
+  Copyright (C) 2005-2011 Barbie for Miss Barbell Productions.
 
   This module is free software; you can redistribute it and/or
   modify it under the same terms as Perl itself.
 
 =cut
-

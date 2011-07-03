@@ -5,7 +5,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.88';
+$VERSION = '0.89';
 
 #----------------------------------------------------------------------------
 
@@ -55,7 +55,8 @@ keys.
   config    => path to configuration file [required]
 
   directory => path to output directory
-  storage   => path to data storage file
+  mainstore => path to main data storage file
+  leadstore => path to leaderboard data storage file
   templates => path to templates directory
   database  => path to SQLite database file
   address   => path to address file
@@ -112,20 +113,24 @@ sub new {
     my @TOCOPY = split("\n", $cfg->val('TOCOPY','LIST'));
     $self->tocopy(\@TOCOPY);
 
-    $self->storage(  _defined_or( $hash{storage},   $cfg->val('MASTER','storage'  ) ));
+    $self->mainstore(_defined_or( $hash{mainstore}, $cfg->val('MASTER','mainstore') ));
+    $self->leadstore(_defined_or( $hash{leadstore}, $cfg->val('MASTER','leadstore') ));
     $self->templates(_defined_or( $hash{templates}, $cfg->val('MASTER','templates') ));
     $self->database( _defined_or( $hash{database},  $cfg->val('MASTER','database' ) ));
     $self->address(  _defined_or( $hash{address},   $cfg->val('MASTER','address'  ) ));
+    $self->missing(  _defined_or( $hash{missing},   $cfg->val('MASTER','missing'  ) ));
     $self->logfile(  _defined_or( $hash{logfile},   $cfg->val('MASTER','logfile'  ) ));
     $self->logclean( _defined_or( $hash{logclean},  $cfg->val('MASTER','logclean' ), 0 ));
     $self->directory(_defined_or( $hash{directory}, $cfg->val('MASTER','directory') ));
     $self->copyright(                               $cfg->val('MASTER','copyright') );
     $self->builder(  _defined_or( $hash{builder},   $cfg->val('MASTER','builder'  ) ));
 
-    $self->_log("storage  =".($self->storage   || ''));
+    $self->_log("mainstore=".($self->mainstore || ''));
+    $self->_log("leadstore=".($self->leadstore || ''));
     $self->_log("templates=".($self->templates || ''));
     $self->_log("database =".($self->database  || ''));
     $self->_log("address  =".($self->address   || ''));
+    $self->_log("missing  =".($self->missing   || ''));
     $self->_log("logfile  =".($self->logfile   || ''));
     $self->_log("logclean =".($self->logclean  || ''));
     $self->_log("directory=".($self->directory || ''));
@@ -143,11 +148,34 @@ sub new {
 
 =item * make_pages
 
-Method to facilitate the creation of the statistics web pages.
+Method to manage the data update and creation of all the statistics web pages.
+
+Note that this method incorporate all of the method functionality of update, 
+make_basics, make_matrix and make_stats.
+
+=item * update
+
+Method to manage the data update only.
+
+=item * make_basics
+
+Method to manage the creation of the basic statistics web pages.
+
+=item * make_matrix
+
+Method to manage the creation of the matrix style statistics web pages.
+
+=item * make_stats
+
+Method to manage the creation of the tabular style statistics web pages.
+
+=item * make_leaders
+
+Method to manage the creation of the OS leaderboard web pages.
 
 =item * make_graphs
 
-Method to facilitate the creation of the statistics graphs.
+Method to manage the creation of all the statistics graphs.
 
 =item * ranges
 
@@ -163,20 +191,55 @@ Returns the print form of a recorded OS name.
 =cut
 
 __PACKAGE__->mk_accessors(
-    qw( directory storage templates database address builder logfile logclean 
-        copyright tocopy osnames));
+    qw( directory mainstore leadstore templates database address builder 
+        missing logfile logclean copyright tocopy osnames));
 
 sub make_pages {
     my $self = shift;
-
-    die "Template directory not found\n"                unless(-d $self->templates);
-    die "Must specify the path of the SQL database\n"   unless(   $self->database);
-    die "Archive SQLite database not found\n"           unless(-f $self->database);
-    die "Must specify the path of the address file\n"   unless(   $self->address);
-    die "Address file not found\n"                      unless(-f $self->address);
+    $self->_check_files();
 
     my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
-    $stats->create();
+    $stats->update_full();
+}
+
+sub update {
+    my $self = shift;
+    $self->_check_files();
+
+    my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
+    $stats->update_data();
+}
+
+sub make_basics {
+    my $self = shift;
+    $self->_check_files();
+
+    my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
+    $stats->build_basics();
+}
+
+sub make_matrix {
+    my $self = shift;
+    $self->_check_files();
+
+    my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
+    $stats->build_matrices();
+}
+
+sub make_stats {
+    my $self = shift;
+    $self->_check_files();
+
+    my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
+    $stats->build_stats();
+}
+
+sub make_leaders {
+    my $self = shift;
+    $self->_check_files();
+
+    my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
+    $stats->build_leaders();
 }
 
 sub make_graphs {
@@ -216,6 +279,15 @@ sub osname {
 
 # -------------------------------------
 # Private Methods
+
+sub _check_files {
+    my $self = shift;
+    die "Template directory not found\n"                unless(-d $self->templates);
+    die "Must specify the path of the SQL database\n"   unless(   $self->database);
+    die "Archive SQLite database not found\n"           unless(-f $self->database);
+    die "Must specify the path of the address file\n"   unless(   $self->address);
+    die "Address file not found\n"                      unless(-f $self->address);
+}
 
 sub _log {
     my $self = shift;
@@ -274,10 +346,9 @@ F<http://wiki.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2008-2010 Barbie for Miss Barbell Productions.
+  Copyright (C) 2005-2011 Barbie for Miss Barbell Productions.
 
   This module is free software; you can redistribute it and/or
   modify it under the same terms as Perl itself.
 
 =cut
-

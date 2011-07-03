@@ -104,6 +104,9 @@ __DATA__
 database=t/_DBDIR/test.db
 address=t/data/addresses.txt
 templates=templates
+mainstore=t/_TMPDIR/cpanstats.json
+leadstore=t/_TMPDIR/leaderboard.json
+missing=t/data/missing-in-action.txt
 
 [CPANSTATS]
 driver=SQLite
