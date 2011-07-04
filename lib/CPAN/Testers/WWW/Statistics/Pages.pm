@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.90';
+$VERSION = '0.91';
 
 #----------------------------------------------------------------------------
 
@@ -251,6 +251,7 @@ sub build_stats {
 
     ## BUILD INDEPENDENT STATS
     $self->_report_cpan();
+    $self->_no_reports();
 
     ## BUILD MONTHLY STATS
     $self->_build_monthly_stats();
@@ -626,7 +627,7 @@ sub _report_interesting {
     my $type = 'reports';
     $self->{xrefs}{$type}{$self->{count}{$type}} = $self->{xlast}{$type};
 
-    for my $key (sort {$a <=> $b} keys %{ $self->{xrefs}{$type} }) {
+    for my $key (sort {$b <=> $a} keys %{ $self->{xrefs}{$type} }) {
         my @row = @{ $self->{xrefs}{$type}{$key} };
 
         $row[0] = $key;
@@ -745,7 +746,7 @@ sub _report_cpan {
 
     $self->{parent}->_log("building cpan interesting stats page");
 
-    $tvars{authors}{total} = _count_mailrc();
+    $tvars{authors}{total} = $self->_count_mailrc();
     my @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(distinct author) FROM uploads");
     $tvars{authors}{active}   = $rows[0]->[0];
     $tvars{authors}{inactive} = $tvars{authors}{total} - $rows[0]->[0];
@@ -832,6 +833,26 @@ sub _report_cpan {
     }
 
     $self->_writepage('statscpan',\%tvars);
+}
+
+sub _no_reports {
+    my $self = shift;
+    my $grace = time - 2419200;
+    my $query = 
+        'SELECT x.* FROM ixlatest AS x '.
+        'LEFT JOIN release_summary AS s ON (x.dist=s.dist AND x.version=s.version) '.
+        'WHERE s.id IS NULL '.
+        'GROUP BY x.dist,x.version ORDER BY x.released DESC';
+    my @rows = $self->{parent}->{CPANSTATS}->get_query('hash',$query);
+    for my $row (@rows) {
+        my @dt = localtime($row->{released});
+        $row->{datetime} = sprintf "%04d-%02d-%02d", $dt[5]+1900,$dt[4]+1,$dt[3];
+        $row->{display}  = $row->{released} < $grace ? 1 : 0;
+        $row->{display}  = 0    if($row->{dist} =~ /^(perl|sqlperl)$/);
+    }
+
+    my $tvars = { rows => \@rows };
+    $self->_writepage('noreports',$tvars);
 }
 
 sub _missing_in_action {
@@ -1718,9 +1739,11 @@ sub _parsedate {
 }
 
 sub _count_mailrc {
+    my $self = shift;
     my $count = 0;
+    my $mailrc = $self->{parent}->mailrc();
 
-    my $fh  = IO::File->new('data/01mailrc.txt','r')     or die "Cannot read file [data/01mailrc.txt]: $!\n";
+    my $fh  = IO::File->new($mailrc,'r')     or die "Cannot read file [$mailrc]: $!\n";
     while(<$fh>) {
         last    if(/^alias\s*DBIML/);
         $count++;
