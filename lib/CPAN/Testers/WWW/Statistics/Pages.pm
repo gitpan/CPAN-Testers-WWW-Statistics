@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.92';
+$VERSION = '0.94';
 
 #----------------------------------------------------------------------------
 
@@ -258,7 +258,14 @@ sub build_stats {
     my $storage = $self->{parent}->mainstore();
     if($storage && -f $storage) {
         $self->{parent}->_log("building dist hash from storage");
-        $self->storage_read($storage);
+        my ($testers) = $self->storage_read($storage);
+
+        for my $tester (keys %$testers) {
+            $self->{counts}{$testers->{$tester}{first}}{first}++;
+            $self->{counts}{$testers->{$tester}{last}}{last}++;
+        }
+
+        $testers = {};  # save memory
 
         my @versions = sort {versioncmp($b,$a)} keys %{$self->{perls}};
         $self->{versions} = \@versions;
@@ -450,7 +457,9 @@ $self->{parent}->_log("checkpoint: count=$self->{count}{$type}, lastid=$lastid")
             $self->{xlast}{$type} = \@row;
         }
     }
+#use Data::Dumper;
 #$self->{parent}->_log("build:3.".Dumper($self->{build}));
+#$self->{parent}->_log("build:4.".Dumper($testers));
 
     $self->storage_write($storage,$testers,$lastid) if($storage);
 
@@ -458,6 +467,7 @@ $self->{parent}->_log("checkpoint: count=$self->{count}{$type}, lastid=$lastid")
         $self->{counts}{$testers->{$tester}{first}}{first}++;
         $self->{counts}{$testers->{$tester}{last}}{last}++;
     }
+#$self->{parent}->_log("build:5.".Dumper($self->{counts}));
 
     my @versions = sort {versioncmp($b,$a)} keys %{$self->{perls}};
     $self->{versions} = \@versions;
@@ -1183,9 +1193,16 @@ sub _platform_matrix {
     return $content;
 }
 
+# Notes:
+# 
+# * use a JSON store (e.g. cpanstats-platform.json)
+# * find the last month stored
+# * rebuild from last month to current month
+# * store JSON data
+
 sub _build_monthly_stats {
     my $self  = shift;
-    my (%tvars,%stats,%testers);
+    my (%tvars,%stats,%testers,%monthly);
     my %templates = (
         platform    => 'mplatforms',
         osname      => 'mosname',
@@ -1196,15 +1213,36 @@ sub _build_monthly_stats {
     $self->{parent}->_log("building monthly tables");
 
     my $query = q!SELECT postdate,%s,count(id) AS count FROM cpanstats ! .
-                q!WHERE type = 2 ! .
+                q!WHERE type = 2 %s ! .
                 q!GROUP BY postdate,%s ORDER BY postdate,count DESC!;
+
     for my $type (qw(platform osname perl)) {
         $self->{parent}->_log("building monthly $type table");
-        (%tvars,%stats) = ();
-        my $sql = sprintf $query, $type, $type;
+        (%tvars,%stats,%monthly) = ();
+        my $postdate = '';
+
+        my $storage = sprintf $self->{parent}->monthstore(), $type;
+        if(-f $storage) {
+            my $data = read_file($storage);
+            my $json = decode_json($data);
+
+            my $last = 0;
+            for my $date (keys %{ $json->{monthly} }) {
+                $last = $date if($date > $last);
+            }
+
+            delete $json->{$_}{$last} for(qw(monthly stats));
+
+            %monthly = %{ $json->{monthly} };
+            %stats   = %{ $json->{stats}   };
+
+            $postdate = "AND postdate >= '$last'" if($last);
+        }
+
+        my $sql = sprintf $query, $type, $postdate, $type;
         my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
         while(my $row = $next->()) {
-            $self->{monthly}{$row->{postdate}}{$type}{$row->{$type}} = 1;
+            $monthly{$row->{postdate}}{$type}{$row->{$type}} = 1;
             $row->{$type} = $self->{parent}->osname($row->{$type})  if($type eq 'osname');
             push @{$stats{$row->{postdate}}{list}}, "[$row->{count}] $row->{$type}";
         }
@@ -1214,20 +1252,49 @@ sub _build_monthly_stats {
             push @{$tvars{STATS}}, [$date,$stats{$date}{count},join(', ',@{$stats{$date}{list}})];
         }
         $self->_writepage($templates{$type},\%tvars);
+
+        # remember monthly counts for monthly files later
+        for my $date (keys %monthly) {
+            $self->{monthly}{$date}{$type} = keys %{ $monthly{$date}{$type} };
+        }
+
+        # store data
+        my $json = { monthly => \%monthly, stats => \%stats };
+        my $data = encode_json($json);
+        write_file($storage,$data);
     }
 
     {
         my $type = 'tester';
         $self->{parent}->_log("building monthly $type table");
-        (%tvars,%stats) = ();
-        my $sql = sprintf $query, $type, $type;
+        (%tvars,%stats,%monthly) = ();
+        my $postdate = '';
+
+        my $storage = sprintf $self->{parent}->monthstore(), $type;
+        if(-f $storage) {
+            my $data = read_file($storage);
+            my $json = decode_json($data);
+
+            my $last = 0;
+            for my $date (keys %{ $json->{monthly} }) {
+                $last = $date if($date > $last);
+            }
+
+            delete $json->{$_}{$last} for(qw(monthly stats));
+
+            %monthly = %{ $json->{monthly} };
+            %stats   = %{ $json->{stats}   };
+
+            $postdate = "AND postdate >= '$last'" if($last);
+        }
+
+        my $sql = sprintf $query, $type, $postdate, $type;
         my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
         while(my $row = $next->()) {
             my $name = $self->_tester_name($row->{tester});
             $testers{$name}                         += $row->{count};
             $stats{$row->{postdate}}{list}{$name}   += $row->{count};
-            #$self->{monthly}{$row->{postdate}}{$type}{$row->{$type}} = 1;
-            $self->{monthly}{$row->{postdate}}{$type}{$name} = 1;
+            $monthly{$row->{postdate}}{$type}{$name} = 1;
         }
 
         for my $date (sort {$b <=> $a} keys %stats) {
@@ -1239,33 +1306,17 @@ sub _build_monthly_stats {
                             keys %{$stats{$date}{list}})];
         }
         $self->_writepage($templates{$type},\%tvars);
+
+        # remember monthly counts for monthly files later
+        for my $date (keys %monthly) {
+            $self->{monthly}{$date}{$type} = keys %{ $monthly{$date}{$type} };
+        }
+
+        # store data
+        my $json = { monthly => \%monthly, stats => \%stats };
+        my $data = encode_json($json);
+        write_file($storage,$data);
     }
-
-    $self->{parent}->_log("building leader board");
-    (%tvars,%stats) = ();
-
-    my $sql = 'SELECT * FROM osname ORDER BY ostitle';
-    my @rows = $self->{parent}->{CPANSTATS}->get_query('hash',$sql);
-    my @oses = grep {$_->{osname}} @rows;
-    $tvars{osnames} = \@oses;
-
-    my $count = 1;
-    for my $tester (sort {$testers{$b} <=> $testers{$a}} keys %testers) {
-        push @{$tvars{STATS}}, [$count++, $testers{$tester}, $tester];
-    }
-
-    $count--;
-
-    $self->{parent}->_log("Unknown Addresses: ".($count-$known_t));
-    $self->{parent}->_log("Known Addresses:   ".($known_s));
-    $self->{parent}->_log("Listed Addresses:  ".($known_s+$count-$known_t));
-    $self->{parent}->_log("Unknown Testers:   ".($count-$known_t));
-    $self->{parent}->_log("Known Testers:     ".($known_t));
-    $self->{parent}->_log("Listed Testers:    ".($count));
-
-    push @{$tvars{COUNTS}}, ($count-$known_t),$known_s,($known_s+$count-$known_t),($count-$known_t),$known_t,$count;
-
-    $self->_writepage('testers',\%tvars);
 }
 
 sub _build_osname_leaderboards {
@@ -1346,8 +1397,8 @@ sub _build_osname_leaderboards {
     my %hash;
     for my $os (keys %oses) {
         for my $tester (keys %{$data->{$post0}{$os}}) {
-            $hash{$os}{$tester}{this} = $data->{$post3}{$os}{$tester} || 0;
-            $hash{$os}{$tester}{that} = $data->{$post2}{$os}{$tester} || 0;
+            $hash{$os}{$tester}{this} =  $data->{$post3}{$os}{$tester} || 0;
+            $hash{$os}{$tester}{that} =  $data->{$post2}{$os}{$tester} || 0;
             $hash{$os}{$tester}{all}  = ($data->{$post3}{$os}{$tester} || 0) + ($data->{$post2}{$os}{$tester} || 0) + 
                                         ($data->{$post1}{$os}{$tester} || 0) + ($data->{$post0}{$os}{$tester} || 0);
         }
@@ -1370,7 +1421,7 @@ sub _build_osname_leaderboards {
         next    unless($osname);
         for my $type (qw(this that all)) {
             my @leaders;
-            for my $tester (sort {($hash{$osname}{$b}{$type} || 0) <=> ($hash{$osname}{$a}{$type} || 0)} keys %{$hash{$osname}}) {
+            for my $tester (sort {($hash{$osname}{$b}{$type} || 0) <=> ($hash{$osname}{$a}{$type} || 0) || $a cmp $b} keys %{$hash{$osname}}) {
                 push @leaders, 
                         {   col2    => $hash{$osname}{$tester}{this}, 
                             col1    => $hash{$osname}{$tester}{that},
@@ -1395,6 +1446,35 @@ sub _build_osname_leaderboards {
             $self->_writepage("leaders/leaders-$os-$type",\%tvars);
         }
     }
+
+    $self->{parent}->_log("building leader board");
+    my (%tvars,%stats,%testers) = ();
+
+    $tvars{osnames} = \@oses;
+    for my $os (keys %{$data->{$post0}}) {
+        next    unless($os);
+        for my $tester (keys %{$data->{$post0}{$os}}) {
+            $testers{$tester} += $data->{$post0}{$os}{$tester};
+        }
+    }
+
+    my $count = 1;
+    for my $tester (sort {$testers{$b} <=> $testers{$a} || $a cmp $b} keys %testers) {
+        push @{$tvars{STATS}}, [$count++, $testers{$tester}, $tester];
+    }
+
+    $count--;
+
+    $self->{parent}->_log("Unknown Addresses: ".($count-$known_t));
+    $self->{parent}->_log("Known Addresses:   ".($known_s));
+    $self->{parent}->_log("Listed Addresses:  ".($known_s+$count-$known_t));
+    $self->{parent}->_log("Unknown Testers:   ".($count-$known_t));
+    $self->{parent}->_log("Known Testers:     ".($known_t));
+    $self->{parent}->_log("Listed Testers:    ".($count));
+
+    push @{$tvars{COUNTS}}, ($count-$known_t),$known_s,($known_s+$count-$known_t),($count-$known_t),$known_t,$count;
+
+    $self->_writepage('testers',\%tvars);
 }
 
 sub _build_os_hash {
@@ -1492,9 +1572,9 @@ sub _build_monthly_stats_files {
         next    if($date > $self->{dates}{LIMIT}-1);
         printf $fh2 "%d,%d,%d,%d\n",
             $date,
-            ($self->{monthly}{$date}{tester}   ? scalar( keys %{$self->{monthly}{$date}{tester}}   ) : 0),
-            ($self->{monthly}{$date}{platform} ? scalar( keys %{$self->{monthly}{$date}{platform}} ) : 0),
-            ($self->{monthly}{$date}{perl}     ? scalar( keys %{$self->{monthly}{$date}{perl}}     ) : 0);
+            ($self->{monthly}{$date}{tester}   || 0),
+            ($self->{monthly}{$date}{platform} || 0),
+            ($self->{monthly}{$date}{perl}     || 0);
     }
     $fh2->close;
 
@@ -1508,7 +1588,7 @@ sub _build_monthly_stats_files {
         next    if($date > $self->{dates}{LIMIT}-1);
 
         if(defined $self->{counts}{$date}) {
-            $self->{counts}{$date}{all}     = scalar(keys %{$self->{counts}{$date}{testers}});
+            $self->{counts}{$date}{all} = scalar(keys %{$self->{counts}{$date}{testers}});
         }
         $self->{counts}{$date}{all}   ||= 0;
         $self->{counts}{$date}{first} ||= 0;

@@ -23,7 +23,7 @@ my $CHECK_DOMAIN    = 'www.google.com';
 my $UPDATE_ARCHIVE = ($ARGV[0] && $ARGV[0] eq '--update-archive') ? 1 : 0;
 
 
-use Test::More tests => 267;
+use Test::More tests => 270;
 use Test::Differences;
 use File::Slurp qw( slurp );
 use Archive::Zip;
@@ -105,7 +105,11 @@ ok( CTWS_Testing::cleanDir($obj), 'directory cleaned' );
 
 {
     my $store1 = 't/data/cpanstats-test.json';
-    $page->storage_read($store1);
+    my ($testers,$lastid) = $page->storage_read($store1);
+
+    is($lastid,182,'got lastid');
+    is($testers->{"Paul Schinder (SCHINDER)"}{'first'},199908,'got testers first');
+    is($testers->{"Paul Schinder (SCHINDER)"}{'last'}, 199909,'got testers last');
 
     my @versions = sort {versioncmp($b,$a)} keys %{$page->{perls}};
     $page->{versions} = \@versions;
@@ -334,7 +338,7 @@ sub check_dir_contents {
             sub {
                 if($_[0]) {
                     $_[0] =~ s/^(\s*)\d+\.\d+(?:_\d+)? at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.( Comments and design patches)/$1 ==TIMESTAMP== $2/gmi;
-                    $_[0] =~ s!\w{3},\s+\d{2}\s+\w{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+\w{3,4}!==TIMESTAMP==!gmi;
+                    $_[0] =~ s!\w{3},\s+\d{2}\s+\w{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+[\w\\ \xe4]+!==TIMESTAMP==!gmi;
                     $_[0] =~ s!\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\w{3,4}\s+\d{4}!==TIMESTAMP==!gmi;
                     $_[0] =~ s/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/==TIMESTAMP==/gmi;
                     $_[0] =~ s/\d+(st|nd|rd|th)\s+\w+\s+\d+/==TIMESTAMP==/gmi;
