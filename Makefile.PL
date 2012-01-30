@@ -25,6 +25,9 @@ WriteMakefile(
         Template                        => 2.19,
         Time::Piece                     => 0,
 
+        # for getmailrc.pl
+        WWW::Mechanize                  => 0,
+
         # for cgimail.pl
         CGI                             => 0,
 
