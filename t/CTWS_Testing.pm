@@ -3,6 +3,8 @@ package CTWS_Testing;
 use strict;
 use warnings;
 
+use lib qw(./lib);
+
 use CPAN::Testers::WWW::Statistics;
 use CPAN::Testers::WWW::Statistics::Pages;
 use CPAN::Testers::WWW::Statistics::Graphs;
@@ -105,7 +107,6 @@ __DATA__
 
 [MASTER]
 mainstore=t/_TMPDIR/cpanstats.json
-leadstore=t/_TMPDIR/leaderboard.json
 monthstore=t/_TMPDIR/cpanstats-%s.json
 
 address=t/data/addresses.txt

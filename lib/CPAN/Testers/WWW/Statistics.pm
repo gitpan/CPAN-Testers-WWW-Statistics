@@ -1,11 +1,11 @@
 package CPAN::Testers::WWW::Statistics;
 
-use 5.006; #due to 'warnings' pragma
+use 5.006;
 use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.99';
+$VERSION = '1.00';
 
 #----------------------------------------------------------------------------
 
@@ -29,9 +29,11 @@ use Config::IniFiles;
 use CPAN::Testers::Common::DBUtils;
 use File::Basename;
 use File::Path;
+use HTML::Entities;
 use IO::File;
 use Regexp::Assemble;
 
+use CPAN::Testers::WWW::Statistics::Leaderboard;
 use CPAN::Testers::WWW::Statistics::Pages;
 use CPAN::Testers::WWW::Statistics::Graphs;
 
@@ -57,7 +59,6 @@ keys.
 
   directory => path to output directory
   mainstore => path to main data storage file
-  leadstore => path to leaderboard data storage file
   templates => path to templates directory
   address   => path to address file
   mailrc    => path to 01mailrc.txt file
@@ -128,8 +129,10 @@ sub new {
     }
     $self->tolink(\%TOLINK);
 
+    $self->known_t( 0 );
+    $self->known_s( 0 );
+
     $self->mainstore( _defined_or( $hash{mainstore},  $cfg->val('MASTER','mainstore' ) ));
-    $self->leadstore( _defined_or( $hash{leadstore},  $cfg->val('MASTER','leadstore' ) ));
     $self->monthstore(_defined_or( $hash{monthstore}, $cfg->val('MASTER','monthstore'), 'cpanstats-%s.json' ));
     $self->templates( _defined_or( $hash{templates},  $cfg->val('MASTER','templates' ) ));
     $self->address(   _defined_or( $hash{address},    $cfg->val('MASTER','address'   ) ));
@@ -142,7 +145,6 @@ sub new {
     $self->builder(   _defined_or( $hash{builder},    $cfg->val('MASTER','builder'   ) ));
 
     $self->_log("mainstore =".($self->mainstore  || ''));
-    $self->_log("leadstore =".($self->leadstore  || ''));
     $self->_log("monthstore=".($self->monthstore || ''));
     $self->_log("templates =".($self->templates  || ''));
     $self->_log("address   =".($self->address    || ''));
@@ -163,6 +165,10 @@ sub new {
 =head2 Public Methods
 
 =over 4
+
+=item * leaderboard
+
+Maintain the leaderboard table as requested.
 
 =item * make_pages
 
@@ -195,23 +201,25 @@ Method to manage the creation of the OS leaderboard web pages.
 
 Method to manage the creation of all the statistics graphs.
 
-=item * ranges
-
-Returns the specific date range array reference, as held in the configuration
-file.
-
-=item * osname
-
-Returns the print form of a recorded OS name.
-
-=back
-
 =cut
 
 __PACKAGE__->mk_accessors(
-    qw( directory mainstore leadstore monthstore templates address 
-        builder missing mailrc logfile logclean copyright noreports tocopy 
-        tolink osnames));
+    qw( directory mainstore monthstore templates address builder missing 
+        mailrc logfile logclean copyright noreports tocopy tolink osnames
+        known_t known_s ));
+
+sub leaderboard {
+    my ($self,%options) = @_;
+
+    my $lb = CPAN::Testers::WWW::Statistics::Leaderboard->new(parent => $self);
+
+    return $lb->results( $options{results} )    if($options{results});
+    return $lb->check()                         if($options{check});
+    return $lb->renew()                         if($options{renew});
+    
+    $lb->update()                               if($options{update});
+    $lb->postdate( $options{postdate} )         if($options{postdate});
+}
 
 sub make_pages {
     my $self = shift;
@@ -267,6 +275,24 @@ sub make_graphs {
     $stats->create();
 }
 
+=item * ranges
+
+Returns the specific date range array reference, as held in the configuration
+file.
+
+=item * osname
+
+Returns the print form of a recorded OS name.
+
+=item * tester
+
+Returns either the known name of the tester for the given email address, or
+returns a doctored version of the address for displaying in HTML.
+
+=back
+
+=cut
+
 sub ranges {
     my ($self,$section) = @_;
     return  unless($section);
@@ -294,6 +320,37 @@ sub osname {
     my ($self,$name) = @_;
     my $osnames = $self->osnames();
     return $osnames->{lc $name} || $name;
+}
+
+sub tester {
+    my ($self,$name) = @_;
+
+    $self->{addresses} ||= do {
+        my (%map,%known);
+        my $address = $self->address;
+
+        my $fh = IO::File->new($address)    or die "Cannot open address file [$address]: $!";
+        while(<$fh>) {
+            chomp;
+            my ($source,$target) = split(',',$_,2);
+            $target =~ s/\s+$//;
+            next    unless($source && $target);
+            $map{$source} = $target;
+            $known{$target}++;
+        }
+        $fh->close;
+        $self->known_t( scalar(keys %known) );
+        $self->known_s( scalar(keys %map)   );
+        \%map;
+    };
+
+    my $addr = ($self->{addresses}{$name} && $self->{addresses}{$name} =~ /\&(\#x?\d+|\w+)\;/)
+                ? $self->{addresses}{$name}
+                : encode_entities( ($self->{addresses}{$name} || $name) );
+    $addr =~ s/\./ /g if($addr =~ /\@/);
+    $addr =~ s/\@/ \+ /g;
+    $addr =~ s/</&lt;/g;
+    return $addr;
 }
 
 # -------------------------------------
@@ -335,6 +392,30 @@ q("I am NOT a number!");
 
 __END__
 
+=head1 CPAN TESTERS FUND
+
+CPAN Testers wouldn't exist without the help and support of the Perl 
+community. However, since 2008 CPAN Testers has grown far beyond the 
+expectations of it's original creators. As a consequence it now requires
+considerable funding to help support the infrastructure.
+
+In early 2012 the Enlightened Perl Organisation very kindly set-up a
+CPAN Testers Fund within their donatation structure, to help the project
+cover the costs of servers and services.
+
+If you would like to donate to the CPAN Testers Fund, please follow the link
+below to the Enlightened Perl Organisation's donation site.
+
+F<https://members.enlightenedperl.org/drupal/donate-cpan-testers>
+
+If your company would like to support us, you can donate financially via the
+fund link above, or if you have servers or services that we might use, please
+send an email to admin@cpantesters.org with details.
+
+Our full list of current sponsors can be found at our I <3 CPAN Testers site.
+
+F<http://iheart.cpantesters.org>
+
 =head1 BUGS, PATCHES & FIXES
 
 There are no known bugs at the time of this release. However, if you spot a
@@ -366,6 +447,6 @@ F<http://wiki.cpantesters.org/>
   Copyright (C) 2005-2012 Barbie for Miss Barbell Productions.
 
   This module is free software; you can redistribute it and/or
-  modify it under the same terms as Perl itself.
+  modify it under the Artistic Licence v2.
 
 =cut

@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '0.99';
+$VERSION = '1.00';
 
 #----------------------------------------------------------------------------
 
@@ -68,8 +68,6 @@ use Time::Piece;
 
 # -------------------------------------
 # Variables
-
-my ($known_s,$known_t) = (0,0);
 
 my %month = (
     0 => 'January',   1 => 'February', 2 => 'March',     3 => 'April',
@@ -397,7 +395,7 @@ sub build_data {
 
         {
             my $osname = $self->{parent}->osname($row->[9]);
-            my $name   = $self->_tester_name($row->[4]);
+            my $name   = $self->{parent}->tester($row->[4]);
 
             $self->{stats}{$row->[3]}{reports}++;
             $self->{stats}{$row->[3]}{state   }{$row->[2]}++;
@@ -656,7 +654,7 @@ sub _report_interesting {
 
         $row[0] = $key;
         $row[3] = uc $row[3];
-        $row[5] = $self->_tester_name($row[5])  if($row[5] && $row[5] =~ /\@/);
+        $row[5] = $self->{parent}->tester($row[5])  if($row[5] && $row[5] =~ /\@/);
         push @{ $tvars{ uc($type) } }, \@row;
     }
 
@@ -1302,7 +1300,7 @@ sub _build_monthly_stats {
         my $sql = sprintf $query, $type, $postdate, $type;
         my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
         while(my $row = $next->()) {
-            my $name = $self->_tester_name($row->{tester});
+            my $name = $self->{parent}->tester($row->{tester});
             $testers{$name}                         += $row->{count};
             $stats{$row->{postdate}}{list}{$name}   += $row->{count};
             $monthly{$row->{postdate}}{$type}{$name} = 1;
@@ -1332,21 +1330,8 @@ sub _build_monthly_stats {
 
 sub _build_osname_leaderboards {
     my $self = shift;
-    my ($json,$data);
 
     $self->{parent}->_log("building osname leaderboards");
-
-    # load data
-    my $storage = $self->{parent}->leadstore();
-    if($storage && -f $storage) {
-        $json = read_file($storage);
-        $data = decode_json($json);
-    }
-
-    unless($data) {
-        $data->{'999999'} = {}, # all counter
-        $data->{'199908'} = {}  # first report date
-    }
 
     # set dates
     my $post0 = '999999';
@@ -1354,32 +1339,25 @@ sub _build_osname_leaderboards {
     my $post2 = $self->{dates}{LASTMONTH};
     my $post3 = $self->{dates}{THISMONTH};
 
+    my @dates = ($post0, $post1, $post2, $post3);
+    my %dates = map {$_ => 1} @dates;
+
     $self->{parent}->_log("1.post0=$post0");
     $self->{parent}->_log("2.post1=$post1");
     $self->{parent}->_log("3.post2=$post2");
     $self->{parent}->_log("4.post3=$post3");
 
+    # load data
+    my $data = $self->{parent}->leaderboard( results => \@dates );
+    $self->{parent}->tester( 'test' );
+
     my @posts = sort keys %$data;
     $self->{parent}->_log("5.posts[0]=$posts[0]");
-
-    # Update data for the missing months
-    if($posts[0] != $post1) {
-        my $p = $posts[0];
-        while($p <= $post3) {
-            $data->{$p} = $self->_build_os_hash($p);
-            $p++;
-            $p += 88    if($p % 100 > 12);
-        }
-    } else {
-        for my $p ($post1,$post2,$post3) {
-            $data->{$p} = $self->_build_os_hash($p);
-        }
-    }
 
     # store data for the last 3 months, and in total
     my %oses;
     for my $post (keys %$data) {
-        if($post == $post0 || $post == $post1 || $post == $post2 || $post == $post3) {
+        if($dates{$post}) {
             for my $os (keys %{$data->{$post}}) {
                 next    unless($os);
                 $oses{$os} = 1;
@@ -1400,12 +1378,6 @@ sub _build_osname_leaderboards {
     }
 
     #$self->{parent}->_log("6.data=".Dumper($data));
-
-    # save data
-    if($storage) {
-        $json = encode_json($data);
-        write_file($storage,$json);
-    }
 
     # reorganise data
     my %hash;
@@ -1481,34 +1453,22 @@ sub _build_osname_leaderboards {
 
     $count--;
 
-    $self->{parent}->_log("Unknown Addresses: ".($count-$known_t));
-    $self->{parent}->_log("Known Addresses:   ".($known_s));
-    $self->{parent}->_log("Listed Addresses:  ".($known_s+$count-$known_t));
-    $self->{parent}->_log("Unknown Testers:   ".($count-$known_t));
-    $self->{parent}->_log("Known Testers:     ".($known_t));
+    $self->{parent}->_log("Unknown Addresses: ".($count-$self->{parent}->known_t));
+    $self->{parent}->_log("Known Addresses:   ".($self->{parent}->known_s));
+    $self->{parent}->_log("Listed Addresses:  ".($self->{parent}->known_s + $count - $self->{parent}->known_t));
+    $self->{parent}->_log("Unknown Testers:   ".($count-$self->{parent}->known_t));
+    $self->{parent}->_log("Known Testers:     ".($self->{parent}->known_t));
     $self->{parent}->_log("Listed Testers:    ".($count));
 
-    push @{$tvars{COUNTS}}, ($count-$known_t),$known_s,($known_s+$count-$known_t),($count-$known_t),$known_t,$count;
+    push @{$tvars{COUNTS}}, 
+        ($count-$self->{parent}->known_t),
+        $self->{parent}->known_s,
+        ($self->{parent}->known_s + $count - $self->{parent}->known_t),
+        ($count - $self->{parent}->known_t),
+        $self->{parent}->known_t,
+        $count;
 
     $self->_writepage('testers',\%tvars);
-}
-
-sub _build_os_hash {
-    my ($self,$pd) = @_;
-    my %hash;
-
-    my $sql = 
-        'SELECT osname,tester,COUNT(id) AS count FROM cpanstats '.
-        'WHERE postdate=? AND type=2 '.
-        'GROUP BY osname,tester';
-
-    my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql,$pd);
-    while(my $row = $next->()) {
-        my $name = $self->_tester_name($row->{tester});
-        $hash{lc $row->{osname}}{$name} += $row->{count};
-    }
-
-    return \%hash;
 }
 
 sub _build_monthly_stats_files {
@@ -1794,44 +1754,6 @@ sub _writepage {
         or die $parser->error() . "\n";
 }
 
-=item * _tester_name
-
-Returns either the known name of the tester for the given email address, or
-returns a doctored version of the address for displaying in HTML.
-
-=cut
-
-my $address;
-sub _tester_name {
-    my ($self,$name) = @_;
-
-    $address ||= do {
-        my (%address_map,%known);
-        my $address = $self->{parent}->address;
-
-        my $fh = IO::File->new($address)    or die "Cannot open address file [$address]: $!";
-        while(<$fh>) {
-            chomp;
-            my ($source,$target) = (/(.*),(.*)/);
-            next    unless($source && $target);
-            $address_map{$source} = $target;
-            $known{$target}++;
-        }
-        $fh->close;
-        $known_t = scalar(keys %known);
-        $known_s = scalar(keys %address_map);
-        \%address_map;
-    };
-
-    my $addr = ($address->{$name} && $address->{$name} =~ /\&\#x?\d+\;/)
-                ? $address->{$name}
-                : encode_entities( ($address->{$name} || $name) );
-    $addr =~ s/\./ /g if($addr =~ /\@/);
-    $addr =~ s/\@/ \+ /g;
-    $addr =~ s/</&lt;/g;
-    return $addr;
-}
-
 # Provides the ordinal for dates.
 
 sub _ext {
@@ -1869,6 +1791,30 @@ __END__
 
 =back
 
+=head1 CPAN TESTERS FUND
+
+CPAN Testers wouldn't exist without the help and support of the Perl 
+community. However, since 2008 CPAN Testers has grown far beyond the 
+expectations of it's original creators. As a consequence it now requires
+considerable funding to help support the infrastructure.
+
+In early 2012 the Enlightened Perl Organisation very kindly set-up a
+CPAN Testers Fund within their donatation structure, to help the project
+cover the costs of servers and services.
+
+If you would like to donate to the CPAN Testers Fund, please follow the link
+below to the Enlightened Perl Organisation's donation site.
+
+F<https://members.enlightenedperl.org/drupal/donate-cpan-testers>
+
+If your company would like to support us, you can donate financially via the
+fund link above, or if you have servers or services that we might use, please
+send an email to admin@cpantesters.org with details.
+
+Our full list of current sponsors can be found at our I <3 CPAN Testers site.
+
+F<http://iheart.cpantesters.org>
+
 =head1 BUGS, PATCHES & FIXES
 
 There are no known bugs at the time of this release. However, if you spot a
@@ -1900,6 +1846,6 @@ F<http://wiki.cpantesters.org/>
   Copyright (C) 2005-2012 Barbie for Miss Barbell Productions.
 
   This module is free software; you can redistribute it and/or
-  modify it under the same terms as Perl itself.
+  modify it under the Artistic Licence v2.
 
 =cut

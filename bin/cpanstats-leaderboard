@@ -2,21 +2,22 @@
 use strict;
 $|++;
 
-my $VERSION = '0.52';
+my $VERSION = '0.01';
 
 #----------------------------------------------------------------------------
 
 =head1 NAME
 
-cpanstats-writegraphs - script to create the CPAN Testers Statistics graphs.
+cpanstats-leaderboard - script to manage the CPAN Testers leaderboard.
 
 =head1 SYNOPSIS
 
-  perl cpanstats-writegraphs
+  perl cpanstats-leaderboard
 
 =head1 DESCRIPTION
 
-Using previously formatted data, generate graphs using the Google Chart API.
+Analyses the reports in the cpanstats database, and generates leaderboard
+statistics for each month, OS and tester.
 
 =cut
 
@@ -40,14 +41,16 @@ my (%options);
 
 init_options();
 
-my $stats = CPAN::Testers::WWW::Statistics->new(
+my $ctws = CPAN::Testers::WWW::Statistics->new(
         config    => $options{config},
-        directory => $options{directory},
+        address   => $options{address},
         logfile   => $options{logfile},
         logclean  => $options{logclean}
 );
 
-$stats->make_graphs();
+my $data = $ctws->leaderboard( %options );
+
+check( $data )  if($options{check});
 
 # -------------------------------------
 # Subroutines
@@ -55,6 +58,10 @@ $stats->make_graphs();
 =head1 FUNCTIONS
 
 =over 4
+
+=item check
+
+Display check results.
 
 =item init_options
 
@@ -68,18 +75,34 @@ Display the help screen.
 
 =cut
 
+sub check {
+    my $data = shift;
+
+    for my $date (sort keys %$data) {
+        print "$date,$data->{$date}{cpanstats},$data->{$date}{leaderboard}\n";
+    }
+}
+
 sub init_options {
     GetOptions( \%options,
         'config=s',
-        'directory=s',
         'logfile=s',
         'logclean=i',
+        'address|a=s',
+        
+        'renew',
+        'update',
+        'check',
+        'postdate=s',
+        
         'help|h',
         'version|v'
     ) or help(1);
 
     help(1) if($options{help});
     help(0) if($options{version});
+
+    $options{update} = 1    unless($options{renew} || $options{update} || $options{check} || $options{postdate});
 }
 
 sub help {
@@ -88,18 +111,23 @@ sub help {
     if($full) {
         print "\n";
         print "Usage:$0 --config=<file> \\\n";
+        print "         [--address|a=<file>]  \\\n";
         print "         [--logfile=<file> [--logclean=<1|0>]] \\\n";
-        print "         [--directory=<dir>]   \\\n";
+        print "         [--renew] [--update] \\\n";
         print "         [--help|h] [--version|v] \n\n";
 
 #              12345678901234567890123456789012345678901234567890123456789012345678901234567890
-        print "This program builds the CPAN Testers Statistics website graphs.\n";
+        print "This program builds the CPAN Testers Statistics website.\n";
 
         print "\nFunctional Options:\n";
         print "  [--config=<file>]          # path to config file [required]\n";
-        print "  [--directory=<dir>]        # path to website directory\n";
+        print "  [--address=<file>]         # path to address file\n";
         print "  [--logfile=<file>]         # path to logfile\n";
-        print "  [--logclean]		    # overwrite log if specified\n";
+        print "  [--logclean]		        # overwrite log if specified\n";
+
+        print "\nRun Mode Options:\n";
+        print "  [--renew]                  # renew leaderboard\n";
+        print "  [--update]                 # update leaderboard\n";
 
         print "\nOther Options:\n";
         print "  [--version]                # program version\n";
@@ -113,6 +141,8 @@ sub help {
 }
 
 __END__
+
+=back
 
 =head1 CPAN TESTERS FUND
 
