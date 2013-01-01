@@ -23,7 +23,7 @@ my $CHECK_DOMAIN    = 'www.google.com';
 my $UPDATE_ARCHIVE = ($ARGV[0] && $ARGV[0] eq '--update-archive') ? 1 : 0;
 
 
-use Test::More tests => 290;
+use Test::More tests => 318;
 use Test::Differences;
 use File::Slurp qw( slurp );
 use Archive::Zip;
@@ -214,6 +214,19 @@ check_dir_contents(
 ok( CTWS_Testing::cleanDir($obj), 'directory cleaned' );
 
 
+## BUILD NO REPORTS
+
+$obj->directory($dir . '/_build_noreports'),
+$page->build_noreports();
+check_dir_contents(
+	"[_build_noreports]",
+	$obj->directory,
+	File::Spec->catfile($EXPECTEDPATH,'56writes._build_noreports'),
+);
+ok( CTWS_Testing::cleanDir($obj), 'directory cleaned' );
+
+
+
 #---------------------------------------
 # Tests for creating graphs
 
@@ -340,7 +353,7 @@ sub check_dir_contents {
             sub {
                 if($_[0]) {
                     $_[0] =~ s/^(\s*)\d+\.\d+(?:_\d+)? at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.(\s*Comments and design patches)/$1 ==TIMESTAMP== $2/gmi;
-                    $_[0] =~ s!\w{3},\s+\d{2}\s+\w{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+[\w\\ \xe4]+!==TIMESTAMP==!gmi;
+                    $_[0] =~ s!\w{3},\s+\d{1,2}\s+\w{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+[\w\\ \xe4]+!==TIMESTAMP==!gmi;
                     $_[0] =~ s!\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\w{3,4}\s+\d{4}!==TIMESTAMP==!gmi;
                     $_[0] =~ s/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/==TIMESTAMP==/gmi;
                     $_[0] =~ s/\d+(st|nd|rd|th)\s+\w+\s+\d+,\s+\d+:\d+/==TIMESTAMP==/gmi;

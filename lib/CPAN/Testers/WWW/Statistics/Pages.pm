@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.01';
+$VERSION = '1.02';
 
 #----------------------------------------------------------------------------
 
@@ -147,47 +147,54 @@ Create all other statistical pages; monthly tables, interesting stats, etc.
 
 Create all OS Leaderboards.
 
+=item * build_noreports
+
+Create all OS no report pages.
+
 =back
 
 =cut
 
 sub setdates {
     my $self = shift;
+    my $time = shift || time;
+
     $self->{parent}->_log("init");
 
     # timestamp for now
-    my $t = localtime;
+    my $t = localtime($time);
     $self->{dates}{RUNTIME} = $t->strftime("%a, %e %b %Y %T %Z");
 
     # todays date
-    my @datetime = localtime;
-    my $THISYEAR = ($datetime[5] +1900);
-    $self->{dates}{RUNDATE} = sprintf "%d%s %s %d", $datetime[3], _ext($datetime[3]), $month{$datetime[4]}, $THISYEAR;
+    my @datetime  = localtime($time);
+    my $THISYEAR  = ($datetime[5] + 1900);
+    my $THISMONTH = ($datetime[4]);
+    $self->{dates}{RUNDATE} = sprintf "%d%s %s %d", $datetime[3], _ext($datetime[3]), $month{$THISMONTH}, $THISYEAR;
 
     # THISMONTH is the last date for all data
-    $self->{dates}{THISMONTH} = ($THISYEAR) * 100 + $datetime[4] + 1;
-    $self->{dates}{THISDATE}  = sprintf "%s %d", $month{int($datetime[4])}, $THISYEAR;
+    $self->{dates}{THISMONTH} = ($THISYEAR) * 100 + $THISMONTH + 1;
+    $self->{dates}{THISDATE}  = sprintf "%s %d", $month{int($THISMONTH)}, $THISYEAR;
 
-    $datetime[4]--;
+    my $THATMONTH = $THISMONTH - 1;
     my $THATYEAR = $THISYEAR;
-    if($datetime[4] < 0) {
-        $datetime[4] = 12;
+    if($THATMONTH < 0) {
+        $THATMONTH = 11;
         $THATYEAR--;
     }
 
     # LASTMONTH is the Month/Year stats are run for
-    $self->{dates}{LASTMONTH} = sprintf "%04d%02d", $THATYEAR, int($datetime[4]+1);
-    $self->{dates}{LASTDATE}  = sprintf "%s %d", $month{int($datetime[4])}, $THATYEAR;
-    $self->{dates}{PREVMONTH} = sprintf "%02d/%02d", int($datetime[4]+1), $THATYEAR - 2000;
+    $self->{dates}{LASTMONTH} = sprintf "%04d%02d", $THATYEAR, int($THATMONTH+1);
+    $self->{dates}{LASTDATE}  = sprintf "%s %d", $month{int($THATMONTH)}, $THATYEAR;
+    $self->{dates}{PREVMONTH} = sprintf "%02d/%02d", int($THATMONTH+1), $THATYEAR - 2000;
 
-    $datetime[4]--;
-    if($datetime[4] < 0) {
-        $datetime[4] = 12;
+    $THATMONTH--;
+    if($THATMONTH < 0) {
+        $THATMONTH = 11;
         $THATYEAR--;
     }
 
     # THATMONTH is the previous Month/Year for a full matrix
-    $self->{dates}{THATMONTH} = sprintf "%04d%02d", $THATYEAR, int($datetime[4]+1);
+    $self->{dates}{THATMONTH} = sprintf "%04d%02d", $THATYEAR, int($THATMONTH+1);
     
     $self->{parent}->_log( "THISYEAR=[$THISYEAR]" );
     $self->{parent}->_log( "THATYEAR=[$THATYEAR]" );
@@ -271,7 +278,6 @@ sub build_stats {
 
         ## BUILD INDEPENDENT STATS
         $self->_report_cpan();
-        $self->_no_reports();
 
         ## BUILD MONTHLY STATS
         $self->_build_monthly_stats();
@@ -298,6 +304,17 @@ sub build_leaders {
     $self->_build_osname_leaderboards();
 
     $self->{parent}->_log("leaders finish");
+}
+
+sub build_noreports {
+    my $self = shift;
+
+    $self->{parent}->_log("noreports start");
+
+    $self->_update_noreports();
+    $self->_build_noreports();
+
+    $self->{parent}->_log("noreports finish");
 }
 
 =head2 Private Methods
@@ -857,15 +874,64 @@ sub _report_cpan {
     $self->_writepage('statscpan',\%tvars);
 }
 
-sub _no_reports {
+sub _update_noreports {
+    my $self = shift;
+
+    $self->{parent}->_log("start update_noreports");
+
+    my %phrasebook = (
+        'DISTS'     => q{   SELECT * FROM ixlatest WHERE oncpan=1 ORDER BY released DESC},
+        'LIST'      => q{   SELECT osname,count(*) AS count
+                            FROM cpanstats
+                            WHERE dist=? AND version=?
+                            GROUP BY osname},
+        'DELETE'    => q{DELETE FROM noreports WHERE dist=?},
+        'INSERT'    => q{INSERT INTO noreports (dist,version,osname) VALUES (?,?,?)}
+    );
+
+    my %dists;
+    my $osnames   = $self->{parent}->osnames();
+    my $noreports = $self->{parent}->noreports();
+    my $grace     = time - 2419200;
+
+    my @rows = $self->{parent}->{CPANSTATS}->get_query('hash',$phrasebook{DISTS});
+    for my $row (@rows) {
+        next    if($noreports && $row->{dist} =~ /^$noreports$/);
+        next    if($dists{$row->{dist}});       # ignore older versions (by other authors)
+        next    if($row->{released} >= $grace); # ignore recently released distributions
+        for my $osname (keys %$osnames) {
+            $dists{$row->{dist}}{$row->{version}}{$osname} = 1;
+        }
+    }
+
+    for my $dist (keys %dists) {
+        for my $version (keys %{$dists{$dist}}) {
+            @rows = $self->{parent}->{CPANSTATS}->get_query('hash',$phrasebook{LIST},$dist,$version);
+            for my $row (@rows) {
+                delete $dists{$dist}{$version}{$row->{osname}};
+            }
+
+            $self->{parent}->{CPANSTATS}->do_query($phrasebook{DELETE},$dist);
+            $self->{parent}->{CPANSTATS}->do_query($phrasebook{INSERT},$dist,$version,$_)
+                for(keys %{$dists{$dist}{$version}});
+        }
+    }
+
+    $self->{parent}->_log("finish update_noreports");
+}
+
+sub _build_noreports {
     my $self  = shift;
     my $grace = time - 2419200;
+    
+    my $noreports = $self->{parent}->noreports();
+    my $osnames   = $self->{parent}->osnames();
+
     my $query =
         'SELECT x.*,count(s.id) as count FROM ixlatest AS x '.
         'LEFT JOIN release_summary AS s ON (x.dist=s.dist AND x.version=s.version) '.
         'GROUP BY x.dist,x.version ORDER BY x.released DESC';
     my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$query);
-    my $noreports = $self->{parent}->noreports();
 
     my (@rows,%dists);
     while(my $row = $next->()) {
@@ -879,12 +945,23 @@ sub _no_reports {
 
         my @dt = localtime($row->{released});
         $row->{datetime} = sprintf "%04d-%02d-%02d", $dt[5]+1900,$dt[4]+1,$dt[3];
-        $row->{display} = 1;
         push @rows, $row;
     }
 
-    my $tvars = { rows => \@rows, rowcount => scalar(@rows) };
-    $self->_writepage('noreports',$tvars);
+    my @osnames = map { { osname => $_, ostitle => $osnames->{$_} } } sort {$osnames->{$a} cmp $osnames->{$b}} keys %$osnames;
+    my $tvars = { rows => \@rows, rowcount => scalar(@rows), template => 'noreports', osnames => \@osnames, ostitle => 'ALL' };
+    $self->_writepage('noreports/all',$tvars);
+
+    $query = 'select i.* from noreports r inner join ixlatest i on i.dist=r.dist and i.version=r.version where r.osname=? order by i.dist';
+    for my $os (@osnames) {
+        my @dists = $self->{parent}->{CPANSTATS}->get_query('hash',$query,$os->{osname});
+        for(@dists) {
+            my @dt = localtime($_->{released});
+            $_->{datetime} = sprintf "%04d-%02d-%02d", $dt[5]+1900,$dt[4]+1,$dt[3];
+        }
+        $tvars = { rows => \@dists, rowcount => scalar(@dists), template => 'noreports', osnames => \@osnames, ostitle => $os->{ostitle} };
+        $self->_writepage('noreports/'.$os->{osname},$tvars);
+    }
 }
 
 sub _missing_in_action {
@@ -1843,7 +1920,7 @@ F<http://wiki.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2005-2012 Barbie for Miss Barbell Productions.
+  Copyright (C) 2005-2013 Barbie for Miss Barbell Productions.
 
   This module is free software; you can redistribute it and/or
   modify it under the Artistic Licence v2.

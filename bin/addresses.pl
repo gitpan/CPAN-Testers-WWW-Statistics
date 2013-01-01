@@ -57,6 +57,12 @@ my (%parsed_map,%cpan_map,%pause_map,%unparsed_map,%address_map,%domain_map,%tar
 my ($dbi,%result,%options);
 my $parsed = 0;
 
+my %phrasebook = (
+    SRCHMNTH    => q{SELECT DISTINCT tester FROM cpanstats WHERE state IN ('pass','fail','na','unknown') AND type=2 AND postdate >= ?},
+    SRCHALL     => q{SELECT DISTINCT tester FROM cpanstats WHERE state IN ('pass','fail','na','unknown') AND type=2},
+    MBEMAIL     => q{SELECT fullname FROM metabase.testers_email WHERE email=?}
+);
+
 # -------------------------------------
 # Program
 
@@ -139,14 +145,16 @@ sub load_addresses {
         print STDERR "cpan entries  = " . scalar(keys %cpan_map)  . "\n";
     }
 
-    # grab all records for the month
-    my $sql = $options{month}
-        ? "SELECT DISTINCT tester FROM cpanstats WHERE postdate >= '$options{month}' AND state IN ('pass','fail','na','unknown')"
-        : "SELECT DISTINCT tester FROM cpanstats WHERE state IN ('pass','fail','na','unknown')";
-    if($options{verbose}) {
-        print STDERR "sql = $sql\n";
+    # retrieve testers for reports
+    my @rows;
+    if($options{month}) {
+        print STDERR "sql = $phrasebook{SRCHMNTH} [$options{month}]\n" if($options{verbose});
+        @rows = $dbi->get_query('array',$phrasebook{SRCHMNTH},$options{month});
+    } else {
+        print STDERR "sql = $phrasebook{SRCHALL}\n" if($options{verbose});
+        @rows = $dbi->get_query('array',$phrasebook{SRCHALL});
     }
-    my @rows = $dbi->get_query('array',$sql);
+
     for my $row (@rows) {
         $parsed++;
         next    if($parsed_map{$row->[0]});
@@ -197,7 +205,7 @@ sub check_addresses {
 
 sub match_addresses {
     for my $key (keys %unparsed_map) {
-        my ($email) = $key =~ /([-+=\w]+\@(?:[-\w]+\.)+(?:com|net|org|info|biz|edu|museum|mil|gov|[a-z]{2,2}))/i;
+        my ($email) = $key =~ /([-+=\w]+\@(?:[-\w]+\.)+(?:com|net|org|info|biz|edu|museum|mil|gov|pro|xxx|name|mobi|tel|asia|[a-z]{2,2}))/i;
         unless($email) {
             push @{$result{NOEMAIL}}, $key;
             next;
@@ -205,9 +213,10 @@ sub match_addresses {
         $email = lc($email);
         my ($local,$domain) = split(/\@/,$email);
 #print STDERR "email=[$email], local=[$local], domain=[$domain]\n"  if($email =~ /indiana/);
-        next    if(map_pause($key,$local,$domain,$email));
-        next    if(map_address($key,$local,$domain,$email));
-        next    if(map_cpan($key,$local,$domain,$email));
+        next    if(map_pause(   $key,$local,$domain,$email));
+        next    if(map_address( $key,$local,$domain,$email));
+        next    if(map_cpan(    $key,$local,$domain,$email));
+        next    if(map_metabase($key,$local,$domain,$email));
 
         my @parts = split(/\./,$domain);
         while(@parts > 1) {
@@ -260,6 +269,17 @@ sub print_addresses {
     }
 
     print "\nArticles parsed = $parsed\n\n";
+}
+
+sub map_metabase {
+    my ($key,$local,$domain,$email) = @_;
+
+    my @rows = $dbi->query_query('array',$phrasebook{MBEMAIL},$email);
+    if(@rows) {
+        $unparsed_map{$key} = $rows[0]->[0] . ' #[METABASE]';
+        return 1;
+    }
+    return 0;
 }
 
 sub map_pause {
@@ -438,10 +458,11 @@ http://rt.cpan.org/Public/Dist/Display.html?Name=CPAN-Testers-WWW-Statistics
 =head1 SEE ALSO
 
 L<CPAN::Testers::Data::Generator>,
-L<CPAN::Testers::WWW::Reports>,
+L<CPAN::Testers::WWW::Reports>
 
 F<http://www.cpantesters.org/>,
-F<http://stats.cpantesters.org/>
+F<http://stats.cpantesters.org/>,
+F<http://wiki.cpantesters.org/>
 
 =head1 AUTHOR
 
@@ -450,7 +471,7 @@ F<http://stats.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2005-2012 Barbie for Miss Barbell Productions.
+  Copyright (C) 2005-2013 Barbie for Miss Barbell Productions.
 
   This module is free software; you can redistribute it and/or
   modify it under the same terms as Perl itself.

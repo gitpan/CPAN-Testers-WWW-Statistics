@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.01';
+$VERSION = '1.02';
 
 #----------------------------------------------------------------------------
 
@@ -196,6 +196,10 @@ Method to manage the creation of the tabular style statistics web pages.
 
 Method to manage the creation of the OS leaderboard web pages.
 
+=item * make_noreports
+
+Method to manage the creation of the no reports pages.
+
 =item * make_graphs
 
 Method to manage the creation of all the statistics graphs.
@@ -266,6 +270,14 @@ sub make_leaders {
 
     my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
     $stats->build_leaders();
+}
+
+sub make_noreports {
+    my $self = shift;
+    $self->_check_files();
+
+    my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
+    $stats->build_noreports();
 }
 
 sub make_graphs {
@@ -443,7 +455,7 @@ F<http://wiki.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2005-2012 Barbie for Miss Barbell Productions.
+  Copyright (C) 2005-2013 Barbie for Miss Barbell Productions.
 
   This module is free software; you can redistribute it and/or
   modify it under the Artistic Licence v2.

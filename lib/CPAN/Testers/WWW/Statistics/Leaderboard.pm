@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.01';
+$VERSION = '1.02';
 
 #----------------------------------------------------------------------------
 
@@ -194,8 +194,8 @@ sub _update {
 
     my $sql1 = shift;
     my $sql2 = 'SELECT osname,tester,COUNT(id) AS count FROM cpanstats '.
-                'WHERE postdate=? AND type=2 '.
-                'GROUP BY osname,tester ORDER BY tester,osname';
+               'WHERE postdate=? AND type=2 '.
+               'GROUP BY osname,tester ORDER BY tester,osname';
     my $sql3 = 'REPLACE INTO leaderboard (postdate,osname,tester,score) VALUES (?,?,?,?)';
     my $sql4 = 'DELETE FROM leaderboard WHERE postdate=?';
 
@@ -285,7 +285,7 @@ F<http://wiki.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2005-2012 Barbie for Miss Barbell Productions.
+  Copyright (C) 2005-2013 Barbie for Miss Barbell Productions.
 
   This module is free software; you can redistribute it and/or
   modify it under the Artistic Licence v2.
