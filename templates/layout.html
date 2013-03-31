@@ -27,22 +27,12 @@
   <link rel="icon"          href="/favicon.ico" type="image/x-icon" />
   <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> 
 
-  <link rel="stylesheet" type="text/css" media="screen,projection,print" href="/css/layout_setup.css" />
-  <link rel="stylesheet" type="text/css" media="screen,projection,print" href="/css/layout_text.css" />
+  <link rel="stylesheet" type="text/css" media="screen,projection,print" href="/css/layout-min.css" />
 
+  <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
   <script type="text/javascript" src="/js/sorttable.js"></script>
 
-<script type="text/javascript" src="http://www.google-analytics.com/urchin.js"></script>
-<script type="text/javascript">
-_uacct = "UA-1826389-9";
-urchinTracker();
-</script>
-
-<script type="text/javascript">
-function goThere(loc) {
-  window.location.href=loc;
-}
-</script>
+  [% INCLUDE "public/analytics.html" %]
 
 <!--
   Site Layout, Design &amp; Development by Miss Barbell Productions
@@ -75,7 +65,7 @@ function goThere(loc) {
         <div class="sitename">
           <h1><a href="/" title="Home">[% base_title %]</a></h1>
           <h3>[% base_url %]</h3>
-          <h2>August 1999 - [% THISDATE %]</h2>
+          <h2><span class="timestamp1">August 1999</span> - <span class="timestamp1">[% THISDATE %]</span></h2>
         </div>
       </div>
 
@@ -146,6 +136,8 @@ function goThere(loc) {
   </div> 
 
   <p class="footnote"><a href="/terms.html" title="Terms &amp; Conditions">Terms &amp; Conditions</a></p>
+
+  <script type="text/javascript" src="/js/iheart.js"></script>
 
 </body>
 </html>

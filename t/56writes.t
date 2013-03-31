@@ -23,7 +23,7 @@ my $CHECK_DOMAIN    = 'www.google.com';
 my $UPDATE_ARCHIVE = ($ARGV[0] && $ARGV[0] eq '--update-archive') ? 1 : 0;
 
 
-use Test::More tests => 318;
+use Test::More tests => 320;
 use Test::Differences;
 use File::Slurp qw( slurp );
 use Archive::Zip;
@@ -77,7 +77,6 @@ rmtree($images);
 $obj->templates($TARGET);
 
 #my ($stats,$fails,$pass,$counts,$dists,$index,$versions) = $page->_build_stats();
-
 
 ## BUILD BASICS METHODS
 
@@ -350,18 +349,11 @@ sub check_dir_contents {
             "$diz diff $f",
             sub {
                 if($_[0]) {
-                    $_[0] =~ s/^(\s*)\d+\.\d+(?:_\d+)? at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.(\s*Comments and design patches)/$1 ==TIMESTAMP== $2/gmi;
-                    $_[0] =~ s!\w{3},\s+\d{1,2}\s+\w{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+[\w\\ \xe4]+!==TIMESTAMP==!gmi;
-                    $_[0] =~ s!\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\w{3,4}\s+\d{4}!==TIMESTAMP==!gmi;
-                    $_[0] =~ s/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/==TIMESTAMP==/gmi;
-                    $_[0] =~ s/\d+(st|nd|rd|th)\s+\w+\s+\d+,\s+\d+:\d+/==TIMESTAMP==/gmi;
-                    $_[0] =~ s/\d+(st|nd|rd|th)\s+\w+\s+\d+/==TIMESTAMP==/gmi;
-                    $_[0] =~ s!\d{4}/\d{2}/\d{2}!==TIMESTAMP==!gmi;
-                    $_[0] =~ s!20\d{4}(\d{2})?!==TIMESTAMP==!gmi;
-                    $_[0] =~ s!\(\d{2}/\d{2}\)!(==TIMESTAMP==)!gmi;
-#                    $_[0] =~ s!\d{2}/\d{2}!==TIMESTAMP==!gmi;
-                    $_[0] =~ s!\w+ \d{4}!==TIMESTAMP==!gmi;
                     $_[0] =~ s!CPAN-Testers-WWW-Statistics-\d.\d{2}!==DISTRO==!gmi;
+
+                    $_[0] =~ s!<td class="timestamp\d">.*?</td>!<td class="timestamp">==TIMESTAMP==</td>!gsi;
+                    $_[0] =~ s!<span class="timestamp\d">.*?</span>!<span class="timestamp">==TIMESTAMP==</span>!gsi;
+
                     $_[0] =~ s/\d{4}\s*\-\s*\d{4}/==DATERANGE==/gmi;
                 }
                 $_[0];
