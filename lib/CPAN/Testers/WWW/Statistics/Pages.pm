@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.05';
+$VERSION = '1.06';
 
 #----------------------------------------------------------------------------
 
@@ -74,6 +74,9 @@ my %month = (
     4 => 'May',       5 => 'June',     6 => 'July',      7 => 'August',
     8 => 'September', 9 => 'October', 10 => 'November', 11 => 'December'
 );
+
+my @months = map { $month{$_} } keys %month;
+my @days = qw(Sunday Monday Tuesday Wednesday Thursday Friday Saturday);
 
 my $ADAY = 86400;
 
@@ -160,6 +163,9 @@ sub setdates {
     my $time = shift || time;
 
     $self->{parent}->_log("init");
+
+    Time::Piece::day_list(@days);
+    Time::Piece::mon_list(@months);
 
     # timestamp for now
     my $t = localtime($time);
