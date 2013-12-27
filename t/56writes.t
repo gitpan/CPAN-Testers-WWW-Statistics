@@ -23,7 +23,7 @@ my $CHECK_DOMAIN    = 'www.google.com';
 my $UPDATE_ARCHIVE = ($ARGV[0] && $ARGV[0] eq '--update-archive') ? 1 : 0;
 
 
-use Test::More tests => 320;
+use Test::More tests => 341;
 use Test::Differences;
 use File::Slurp qw( slurp );
 use Archive::Zip;
@@ -358,6 +358,7 @@ sub check_dir_contents {
                     $_[0] =~ s!\b20\d{10}\b!==TIMESTAMP==!gsi;
 
                     $_[0] =~ s/\d{4}\s*\-\s*\d{4}/==DATERANGE==/gmi;
+                    $_[0] =~ s/(\n\r|\r\n)/\n/gs;
                 }
                 $_[0];
             }

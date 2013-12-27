@@ -1,7 +1,13 @@
 Revision history for CPAN-Testers-WWW-Statistics
+================================================
+
+1.07    2013-12-27
+        - added support for tester profiles.
+        - added directory sizes (as suggested by David Golden).
+        - reworked tester name lookups.
 
 1.06    2013-08-18
-        - template patchs (thanks to Chorny).
+        - template patches (thanks to Chorny).
         - set day and month names explicitly in Time::Piece.
 
 1.05    2013-04-14

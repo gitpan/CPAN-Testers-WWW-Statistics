@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.06';
+$VERSION = '1.07';
 
 #----------------------------------------------------------------------------
 
@@ -283,6 +283,7 @@ sub build_stats {
         $self->{versions} = \@versions;
 
         ## BUILD INDEPENDENT STATS
+        $self->_build_sizes();
         $self->_report_cpan();
 
         ## BUILD MONTHLY STATS
@@ -411,61 +412,61 @@ sub build_data {
     # id, guid, state, postdate, tester, dist, version, platform, perl, osname, osvers, fulldate, type
 
     $self->{parent}->_log("building dist hash from $lastid");
-    my $iterator = $self->{parent}->{CPANSTATS}->iterator('array',"SELECT * FROM cpanstats WHERE type = 2 AND id > $lastid ORDER BY id LIMIT 1000000");
+    my $iterator = $self->{parent}->{CPANSTATS}->iterator('hash',"SELECT * FROM cpanstats WHERE type = 2 AND id > $lastid ORDER BY id LIMIT 1000000");
     while(my $row = $iterator->()) {
-        $row->[8] =~ s/\s.*//;  # only need to know the main release
-        $lastid = $row->[0];
+        $row->{perl} =~ s/\s.*//;  # only need to know the main release
+        $lastid = $row->{id};
 
         {
-            my $osname = $self->{parent}->osname($row->[9]);
-            my $name   = $self->{parent}->tester($row->[4]);
+            my $osname = $self->{parent}->osname($row->{osname});
+            my $name   = $self->{parent}->tester($row->{tester});
 
-            $self->{stats}{$row->[3]}{reports}++;
-            $self->{stats}{$row->[3]}{state   }{$row->[2]}++;
-            #$self->{stats}{$row->[3]}{dist    }{$row->[5]}++;
-            #$self->{stats}{$row->[3]}{version }{$row->[6]}++;
+            $self->{stats}{$row->{postdate}}{reports}++;
+            $self->{stats}{$row->{postdate}}{state   }{$row->{state}}++;
+            #$self->{stats}{$row->{postdate}}{dist    }{$row->{dist}}++;
+            #$self->{stats}{$row->{postdate}}{version }{$row->{version}}++;
 
             # check distribution tallies
-            if(defined $self->{dists}{$row->[5]}) {
-                $self->{dists}{$row->[5]}{ALL}++;
+            if(defined $self->{dists}{$row->{dist}}) {
+                $self->{dists}{$row->{dist}}{ALL}++;
 
-                if($self->{dists}{$row->[5]}->{VER} eq $row->[6]) {
-                    $self->{dists}{$row->[5]}{IXL}++;
+                if($self->{dists}{$row->{dist}}->{VER} eq $row->{version}) {
+                    $self->{dists}{$row->{dist}}{IXL}++;
 
                     # check failure rates
-                    $self->{fails}{$row->[5]}{$row->[6]}{fail}++    if($row->[2] eq 'fail');
-                    $self->{fails}{$row->[5]}{$row->[6]}{pass}++    if($row->[2] eq 'pass');
-                    $self->{fails}{$row->[5]}{$row->[6]}{total}++;
+                    $self->{fails}{$row->{dist}}{$row->{version}}{fail}++    if($row->{state} eq 'fail');
+                    $self->{fails}{$row->{dist}}{$row->{version}}{pass}++    if($row->{state} eq 'pass');
+                    $self->{fails}{$row->{dist}}{$row->{version}}{total}++;
                 }
             }
 
             # build matrix stats
-            my $perl = $row->[8];
+            my $perl = $row->{perl};
             $perl =~ s/\s.*//;  # only need to know the main release
             $self->{perls}{$perl} = 1;
 
-            $self->{pass}    {$row->[7]}{$perl}{all}{$row->[5]} = 1;
-            $self->{platform}{$row->[7]}{$perl}{all}++;
-            $self->{osys}    {$osname}  {$perl}{all}{$row->[5]} = 1;
+            $self->{pass}    {$row->{platform}}{$perl}{all}{$row->{dist}} = 1;
+            $self->{platform}{$row->{platform}}{$perl}{all}++;
+            $self->{osys}    {$osname}  {$perl}{all}{$row->{dist}} = 1;
             $self->{osname}  {$osname}  {$perl}{all}++;
 
-            if($row->[3] == $self->{dates}{THATMONTH}) {
-                $self->{pass}    {$row->[7]}{$perl}{month}{$row->[5]} = 1;
-                $self->{platform}{$row->[7]}{$perl}{month}++;
-                $self->{osys}    {$osname}  {$perl}{month}{$row->[5]} = 1;
+            if($row->{postdate} == $self->{dates}{THATMONTH}) {
+                $self->{pass}    {$row->{platform}}{$perl}{month}{$row->{dist}} = 1;
+                $self->{platform}{$row->{platform}}{$perl}{month}++;
+                $self->{osys}    {$osname}  {$perl}{month}{$row->{dist}} = 1;
                 $self->{osname}  {$osname}  {$perl}{month}++;
             }
 
             # record tester activity
-            $testers->{$name}{first} ||= $row->[3];
-            $testers->{$name}{last}    = $row->[3];
-            $self->{counts}{$row->[3]}{testers}{$name} = 1;
+            $testers->{$name}{first} ||= $row->{postdate};
+            $testers->{$name}{last}    = $row->{postdate};
+            $self->{counts}{$row->{postdate}}{testers}{$name} = 1;
 
-            my $day = substr($row->[11],0,8);
+            my $day = substr($row->{fulldate},0,8);
             $self->{build}{$day}{reports}++ if(defined $self->{build}{$day});
         }
 
-        my @row = (0, @$row);
+        my @row = (0, map {$row->{$_}} qw(id guid state postdate tester dist version platform perl osname osvers fulldate type));
 
         $self->{count}{posters} = $row[1];
         $self->{count}{entries}++;
@@ -663,6 +664,8 @@ sub _report_interesting {
 
     $self->{parent}->_log("building interesting page");
 
+    $tvars{sizes}{reports} = $self->{sizes}{dir_reports};
+
     my (@bydist,@byvers);
     my $inx = 20;
     for my $dist (sort {$self->{dists}{$b}{ALL} <=> $self->{dists}{$a}{ALL}} keys %{$self->{dists}}) {
@@ -798,12 +801,15 @@ sub _report_cpan {
     $self->_writepage('leadercpan',\%tvars);
 
 
-    $self->{parent}->_log("building cpan interesting stats page");
+    $self->{parent}->_log("building cpan interesting stats page (part 1)");
+
+    $tvars{sizes}{cpan}     = $self->{sizes}{dir_cpan};
+    $tvars{sizes}{backpan}  = $self->{sizes}{dir_backpan};
 
     $tvars{authors}{total} = $self->_count_mailrc();
     my @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(distinct author) FROM uploads");
-    $tvars{authors}{active}   = $rows[0]->[0];
-    $tvars{authors}{inactive} = $tvars{authors}{total} - $rows[0]->[0];
+    $tvars{authors}{active}    = $rows[0]->[0];
+    $tvars{authors}{inactive}  = $tvars{authors}{total} - $rows[0]->[0];
 
     @rows = $self->{parent}->{CPANSTATS}->get_query('array',"SELECT COUNT(distinct dist) FROM uploads WHERE type != 'backpan'");
     $tvars{distros}{uploaded1} = $rows[0]->[0];
@@ -1328,7 +1334,7 @@ sub _build_monthly_stats {
 
     my $query = q!SELECT postdate,%s,count(id) AS count FROM cpanstats ! .
                 q!WHERE type = 2 %s ! .
-                q!GROUP BY postdate,%s ORDER BY postdate,count DESC!;
+                q!GROUP BY postdate,%s ORDER BY postdate,count DESC,%s!;
 
     for my $type (qw(platform osname perl)) {
         $self->{parent}->_log("building monthly $type table");
@@ -1353,7 +1359,7 @@ sub _build_monthly_stats {
             $postdate = "AND postdate >= '$last'" if($last);
         }
 
-        my $sql = sprintf $query, $type, $postdate, $type;
+        my $sql = sprintf $query, $type, $postdate, $type,$type;
         my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
         while(my $row = $next->()) {
             $monthly{$row->{postdate}}{$type}{$row->{$type}} = 1;
@@ -1402,7 +1408,7 @@ sub _build_monthly_stats {
             $postdate = "AND postdate >= '$last'" if($last);
         }
 
-        my $sql = sprintf $query, $type, $postdate, $type;
+        my $sql = sprintf $query, $type, $postdate, $type, $type;
         my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
         while(my $row = $next->()) {
             my $name = $self->{parent}->tester($row->{tester});
@@ -1493,7 +1499,6 @@ sub _build_osname_leaderboards {
             $hash{$os}{$tester}{all}  = ($data->{$post3}{$os}{$tester} || 0) + ($data->{$post2}{$os}{$tester} || 0) + 
                                         ($data->{$post1}{$os}{$tester} || 0) + ($data->{$post0}{$os}{$tester} || 0);
         }
-
     }
 
     $self->{parent}->_log("1.reorg");
@@ -1557,6 +1562,8 @@ sub _build_osname_leaderboards {
     }
 
     $count--;
+
+    $self->{parent}->tester_loader();
 
     $self->{parent}->_log("Unknown Addresses: ".($count-$self->{parent}->known_t));
     $self->{parent}->_log("Known Addresses:   ".($self->{parent}->known_s));
@@ -1813,6 +1820,18 @@ sub _build_performance_stats {
     $fh->close;
 }
 
+sub _build_sizes {
+    my $self  = shift;
+    my $du = 'du -h --max-depth=0';
+
+    for my $dir (qw( dir_cpan dir_backpan dir_reports )) {
+        my $path = $self->{parent}->$dir();
+        my $res =`$du $path`;
+        $res =~ s/\s.*$//s  if($res);
+        $self->{sizes}{$dir} = $res;
+        $self->{parent}->_log(".. size for $dir ($path) = $res");
+    }
+}
 
 =item * _writepage
 
@@ -1842,9 +1861,9 @@ sub _writepage {
     $vars->{copyright}  = $self->{parent}->copyright;
     $vars->{$_}         = $self->{dates}{$_}    for(keys %{ $self->{dates} });
 
-#    if($page =~ /^(p|os)matrix/) {
-#        print STDERR "$page:" . Dumper($vars);
-#    }
+    #if($page =~ /(statscpan|interest)/) {
+    #    $self->{parent}->_log("$page:" . Dumper($vars));
+    #}
 
     my %config = (                          # provide config info
         RELATIVE        => 1,

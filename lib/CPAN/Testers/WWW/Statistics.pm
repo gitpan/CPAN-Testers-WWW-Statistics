@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.06';
+$VERSION = '1.07';
 
 #----------------------------------------------------------------------------
 
@@ -95,7 +95,7 @@ sub new {
     $self->{cfg} = $cfg;
 
     # configure databases
-    for my $db (qw(CPANSTATS)) {
+    for my $db (qw(CPANSTATS TESTERS)) {
         die "No configuration for $db database\n"   unless($cfg->SectionExists($db));
         my %opts = map {my $v = $cfg->val($db,$_); defined($v) ? ($_ => $v) : () }
                         qw(driver database dbfile dbhost dbport dbuser dbpass);
@@ -143,16 +143,12 @@ sub new {
     $self->copyright(                                 $cfg->val('MASTER','copyright' ) );
     $self->builder(   _defined_or( $hash{builder},    $cfg->val('MASTER','builder'   ) ));
 
-    $self->_log("mainstore =".($self->mainstore  || ''));
-    $self->_log("monthstore=".($self->monthstore || ''));
-    $self->_log("templates =".($self->templates  || ''));
-    $self->_log("address   =".($self->address    || ''));
-    $self->_log("missing   =".($self->missing    || ''));
-    $self->_log("mailrc    =".($self->mailrc     || ''));
-    $self->_log("logfile   =".($self->logfile    || ''));
-    $self->_log("logclean  =".($self->logclean   || ''));
-    $self->_log("directory =".($self->directory  || ''));
-    $self->_log("builder   =".($self->builder    || ''));
+    for my $dir (qw(dir_cpan dir_backpan dir_reports)) {
+        $self->$dir(  _defined_or( $hash{$dir},       $cfg->val('MASTER',$dir        ) ));
+    }
+
+    $self->_log(sprintf "%-12s=%s", $_, ($self->$_() || ''))
+        for(qw(mainstore monthstore templates address missing mailrc logfile logclean directory builder dir_cpan dir_backpan dir_reports));
 
     die "Must specify the output directory\n"           unless($self->directory);
     die "Must specify the template directory\n"         unless($self->templates);
@@ -209,7 +205,7 @@ Method to manage the creation of all the statistics graphs.
 __PACKAGE__->mk_accessors(
     qw( directory mainstore monthstore templates address builder missing 
         mailrc logfile logclean copyright noreports tocopy tolink osnames
-        known_t known_s ));
+        address profile known_t known_s dir_cpan dir_backpan dir_reports));
 
 sub leaderboard {
     my ($self,%options) = @_;
@@ -300,6 +296,15 @@ Returns the print form of a recorded OS name.
 Returns either the known name of the tester for the given email address, or
 returns a doctored version of the address for displaying in HTML.
 
+=item * tester_lookup
+
+Returns the name or email address, if found, of the stored profile or address
+for the given addressid and testerid.
+
+=item * tester_loader
+
+Look up the number of know addresses and testers in the database.
+
 =back
 
 =cut
@@ -336,32 +341,76 @@ sub osname {
 sub tester {
     my ($self,$name) = @_;
 
-    $self->{addresses} ||= do {
-        my (%map,%known);
-        my $address = $self->address;
-
-        my $fh = IO::File->new($address)    or die "Cannot open address file [$address]: $!";
-        while(<$fh>) {
-            chomp;
-            my ($source,$target) = split(',',$_,2);
-            $target =~ s/\s+$//;
-            next    unless($source && $target);
-            $map{$source} = $target;
-            $known{$target}++;
+    return @{$self->{addresses}{$name}} if($self->{addresses}{$name});
+    
+    my @rows = $self->{TESTERS}->get_query('hash',q{
+        SELECT a.email,p.name,p.pause,a.addressid,a.testerid 
+        FROM address a 
+        LEFT JOIN profile p ON p.testerid=a.testerid 
+        WHERE a.address=? OR a.email=?
+    },$name,$name);
+    
+    my @addr = ( $name, 0, 0 );
+    if(@rows) {
+        if($rows[0]->{name}) {
+            $addr[0] = $rows[0]->{name} . ($rows[0]->{pause} ? " ($rows[0]->{pause})" : '');
+        } else {
+            $addr[0] = $rows[0]->{email};
         }
-        $fh->close;
-        $self->known_t( scalar(keys %known) );
-        $self->known_s( scalar(keys %map)   );
-        \%map;
-    };
 
-    my $addr = ($self->{addresses}{$name} && $self->{addresses}{$name} =~ /\&(\#x?\d+|\w+)\;/)
-                ? $self->{addresses}{$name}
-                : encode_entities( ($self->{addresses}{$name} || $name) );
-    $addr =~ s/\./ /g if($addr =~ /\@/);
-    $addr =~ s/\@/ \+ /g;
-    $addr =~ s/</&lt;/g;
-    return $addr;
+        $addr[1] = $rows[0]->{addressid};
+        $addr[2] = $rows[0]->{testerid};
+    }
+
+    $addr[0] = $addr[0] =~ /\&(\#x?\d+|\w+)\;/
+                ? $addr[0]
+                : encode_entities( $addr[0] );
+    $addr[0] =~ s/\./ /g    if($addr[0] =~ /\@/);
+    $addr[0] =~ s/\@/ \+ /g;
+    $addr[0] =~ s/</&lt;/g;
+    $addr[0] =~ s/>/&gt;/g;
+
+    $self->{addresses}{$name} = \@addr;
+    return @addr;
+}
+
+sub tester_lookup {
+    my ($self,$addressid,$testerid) = @_;
+    
+    $self->tester_loader()  unless($self->known_t);
+    my $address = $self->address;
+    my $profile = $self->profile;
+
+    if($testerid && $profile->{$testerid}) {
+        my $name = $profile->{$testerid}{name};
+        $name .= " ($profile->{$testerid}{pause})"  if($profile->{$testerid}{pause});
+        return $name;
+    }
+
+    if($addressid && $address->{$addressid}) {
+        return $address->{$addressid}{email};
+    }
+
+    return;
+}
+
+sub tester_loader {
+    my $self = shift;
+    my (%address,%profile);
+
+    my @rows = $self->{TESTERS}->get_query('hash',q{SELECT * FROM address});
+    for my $row (@rows) { $address{$row->{addressid}} = $row; }
+    $self->address( \%address );
+
+    @rows = $self->{TESTERS}->get_query('hash',q{SELECT * FROM profile});
+    for my $row (@rows) { $profile{$row->{testerid}} = $row; }
+    $self->profile( \%profile );
+
+    @rows = $self->{TESTERS}->get_query('array',q{
+        SELECT count(addressid),count(distinct testerid) FROM address WHERE testerid > 0
+    });
+    $self->known_s( $rows[0]->[0] );
+    $self->known_t( $rows[0]->[1] );
 }
 
 # -------------------------------------
