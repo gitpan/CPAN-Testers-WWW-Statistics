@@ -1,6 +1,12 @@
 Revision history for CPAN-Testers-WWW-Statistics
 ================================================
 
+1.10    2014-04-21
+        - tester() now returns an list.
+        - monthstore and mainstore merged.
+        - storage elements now saved in individual files.
+        - dist lists written in lexical order.
+
 1.09    2014-01-01
         - format of 01mailrc.txt has changed.
 

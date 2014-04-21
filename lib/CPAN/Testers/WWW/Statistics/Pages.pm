@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.09';
+$VERSION = '1.10';
 
 #----------------------------------------------------------------------------
 
@@ -249,10 +249,9 @@ sub build_matrices {
     my $self = shift;
 
     $self->{parent}->_log("start build_matrices");
-    my $storage = $self->{parent}->mainstore();
-    if($storage && -f $storage) {
+    $self->storage_read();
+    if($self->{perls}) {
         $self->{parent}->_log("building dist hash from storage");
-        $self->storage_read($storage);
 
         my @versions = sort {versioncmp($b,$a)} keys %{$self->{perls}};
         $self->{versions} = \@versions;
@@ -267,10 +266,12 @@ sub build_stats {
     my $self = shift;
 
     $self->{parent}->_log("stats start");
-    my $storage = $self->{parent}->mainstore();
-    if($storage && -f $storage) {
+
+    $self->storage_read();
+    my $testers = $self->storage_read('testers');
+
+    if($testers) {
         $self->{parent}->_log("building dist hash from storage");
-        my ($testers) = $self->storage_read($storage);
 
         for my $tester (keys %$testers) {
             $self->{counts}{$testers->{$tester}{first}}{first}++;
@@ -351,12 +352,14 @@ sub build_data {
     my @tday = localtime($d1);
     my $tday = sprintf "%04d%02d%02d", $tday[5]+1900, $tday[4]+1, $tday[3];
 
+    my $lastid  = $self->storage_read('lastid') || 0;
     my $testers = {};
-    my $lastid = 0;
-    my $storage = $self->{parent}->mainstore();
-    if($storage && -f $storage) {
+
+    if($lastid) {
         $self->{parent}->_log("building dist hash from storage");
-        ($testers,$lastid) = $self->storage_read($storage);
+
+        $self->storage_read();
+        $testers = $self->storage_read('testers');
 
         # only remember the latest release for 'dists' hash
         my $iterator = $self->{parent}->{CPANSTATS}->iterator('hash',"SELECT dist,version FROM ixlatest");
@@ -419,7 +422,7 @@ sub build_data {
 
         {
             my $osname = $self->{parent}->osname($row->{osname});
-            my $name   = $self->{parent}->tester($row->{tester});
+            my ($name) = $self->{parent}->tester($row->{tester});
 
             $self->{stats}{$row->{postdate}}{reports}++;
             $self->{stats}{$row->{postdate}}{state   }{$row->{state}}++;
@@ -475,10 +478,12 @@ sub build_data {
         my $type = 'reports';
 $self->{parent}->_log("checkpoint: count=$self->{count}{$type}, lastid=$lastid") if($self->{count}{$type} % 10000 == 0);
 
-        if($storage && $self->{count}->{$type} % 100000 == 0) {
+        if($self->{count}->{$type} % 100000 == 0) {
             # due to the large data structures used, long runs (eg starting from
             # scratch) should save the current state periodically.
-            $self->storage_write($storage,$testers,$lastid)
+            $self->storage_write();
+            $self->storage_write('testers',$testers);
+            $self->storage_write('lastid',$lastid);
         }
 
         if($self->{count}{$type} == 1 || ($self->{count}->{$type} % 500000) == 0) {
@@ -490,7 +495,9 @@ $self->{parent}->_log("checkpoint: count=$self->{count}{$type}, lastid=$lastid")
 #$self->{parent}->_log("build:3.".Dumper($self->{build}));
 #$self->{parent}->_log("build:4.".Dumper($testers));
 
-    $self->storage_write($storage,$testers,$lastid) if($storage);
+    $self->storage_write();
+    $self->storage_write('testers',$testers);
+    $self->storage_write('lastid',$lastid);
 
     for my $tester (keys %$testers) {
         $self->{counts}{$testers->{$tester}{first}}{first}++;
@@ -505,24 +512,48 @@ $self->{parent}->_log("checkpoint: count=$self->{count}{$type}, lastid=$lastid")
 }
 
 sub storage_read {
-    my ($self,$storage) = @_;
-    my $data = read_file($storage);
-    my $store = decode_json($data);
-    $self->{$_} = $store->{$_}  for(qw(stats dists fails perls pass platform osys osname build counts count xrefs xlast));
-    return($store->{testers},$store->{lastid});
+    my ($self,$type) = @_;
+
+    if($type) {
+        my $storage = sprintf $self->{parent}->mainstore(), $type;
+        return  unless(-f $storage);
+        my $data = read_file($storage);
+        my $store = decode_json($data);
+        return $store->{$type};
+    }
+
+    for $type (qw(stats dists fails perls pass platform osys osname build counts count xrefs xlast)) {
+        my $storage = sprintf $self->{parent}->mainstore(), $type;
+        next    unless(-f $storage);
+        my $data = read_file($storage);
+        my $store = decode_json($data);
+        $self->{$type} = $store->{$type};
+    }
 }
 
 sub storage_write {
-    my ($self,$storage,$testers,$lastid) = @_;
-    my $store = {};
+    my ($self,$type,$store) = @_;
 
-    $store->{$_} = $self->{$_}  for(qw(stats dists fails perls pass platform osys osname build counts count xrefs xlast));
-    $store->{testers} = $testers;
-    $store->{lastid} = $lastid;
+    if($type) {
+        return  unless($store);
+        my $data = encode_json({$type => $store});
 
-    my $data = encode_json($store);
-#$self->{parent}->_log("storage: data=".Dumper($data));
-    overwrite_file($storage,$data);
+        my $storage = sprintf $self->{parent}->mainstore(), $type;
+        my $dir = dirname($storage);
+        mkpath($dir)    if($dir && !-e $dir);
+        overwrite_file($storage,$data);
+        return;
+    }
+
+    for $type (qw(stats dists fails perls pass platform osys osname build counts count xrefs xlast)) {
+        next    unless($self->{$type});
+        my $data = encode_json({$type => $self->{$type}});
+
+        my $storage = sprintf $self->{parent}->mainstore(), $type;
+        my $dir = dirname($storage);
+        mkpath($dir)    if($dir && !-e $dir);
+        overwrite_file($storage,$data);
+    }
 }
 
 =head3 Page Creation Methods
@@ -682,14 +713,15 @@ sub _report_interesting {
     $tvars{BYVERS} = \@byvers;
 
     my $type = 'reports';
-    $self->{xrefs}{$type}{$self->{count}{$type}} = $self->{xlast}{$type};
+    $self->{count}{$type} ||= 0;
+    $self->{xrefs}{$type}{$self->{count}{$type}} = $self->{xlast} ? $self->{xlast}{$type} : [];
 
     for my $key (sort {$b <=> $a} keys %{ $self->{xrefs}{$type} }) {
         my @row = @{ $self->{xrefs}{$type}{$key} };
 
         $row[0] = $key;
-        $row[3] = uc $row[3];
-        $row[5] = $self->{parent}->tester($row[5])  if($row[5] && $row[5] =~ /\@/);
+        $row[3] = uc $row[3]    if($row[3]);
+        ($row[5]) = $self->{parent}->tester($row[5])  if($row[5] && $row[5] =~ /\@/);
         push @{ $tvars{ uc($type) } }, \@row;
     }
 
@@ -1341,11 +1373,8 @@ sub _build_monthly_stats {
         (%tvars,%stats,%monthly) = ();
         my $postdate = '';
 
-        my $storage = sprintf $self->{parent}->monthstore(), $type;
-        if(-f $storage) {
-            my $data = read_file($storage);
-            my $json = decode_json($data);
-
+        my $json = $self->storage_read($type);
+        if($json) {
             my $last = 0;
             for my $date (keys %{ $json->{monthly} }) {
                 $last = $date if($date > $last);
@@ -1359,7 +1388,7 @@ sub _build_monthly_stats {
             $postdate = "AND postdate >= '$last'" if($last);
         }
 
-        my $sql = sprintf $query, $type, $postdate, $type,$type;
+        my $sql = sprintf $query, $type, $postdate, $type, $type;
         my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
         while(my $row = $next->()) {
             $monthly{$row->{postdate}}{$type}{$row->{$type}} = 1;
@@ -1379,9 +1408,8 @@ sub _build_monthly_stats {
         }
 
         # store data
-        my $json = { monthly => \%monthly, stats => \%stats };
-        my $data = encode_json($json);
-        write_file($storage,$data);
+        my $hash = { monthly => \%monthly, stats => \%stats };
+        $self->storage_write($type,$hash);
     }
 
     {
@@ -1390,11 +1418,8 @@ sub _build_monthly_stats {
         (%tvars,%stats,%monthly) = ();
         my $postdate = '';
 
-        my $storage = sprintf $self->{parent}->monthstore(), $type;
-        if(-f $storage) {
-            my $data = read_file($storage);
-            my $json = decode_json($data);
-
+        my $json = $self->storage_read($type);
+        if($json) {
             my $last = 0;
             for my $date (keys %{ $json->{monthly} }) {
                 $last = $date if($date > $last);
@@ -1411,7 +1436,7 @@ sub _build_monthly_stats {
         my $sql = sprintf $query, $type, $postdate, $type, $type;
         my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
         while(my $row = $next->()) {
-            my $name = $self->{parent}->tester($row->{tester});
+            my ($name) = $self->{parent}->tester($row->{tester});
             $testers{$name}                         += $row->{count};
             $stats{$row->{postdate}}{list}{$name}   += $row->{count};
             $monthly{$row->{postdate}}{$type}{$name} = 1;
@@ -1433,9 +1458,8 @@ sub _build_monthly_stats {
         }
 
         # store data
-        my $json = { monthly => \%monthly, stats => \%stats };
-        my $data = encode_json($json);
-        write_file($storage,$data);
+        my $hash = { monthly => \%monthly, stats => \%stats };
+        $self->storage_write($type,$hash);
     }
 }
 
@@ -1827,6 +1851,7 @@ sub _build_sizes {
     for my $dir (qw( dir_cpan dir_backpan dir_reports )) {
         my $path = $self->{parent}->$dir();
         my $res =`$du $path`;
+        $res ||= '';
         $res =~ s/\s.*$//s  if($res);
         $self->{sizes}{$dir} = $res;
         $self->{parent}->_log(".. size for $dir ($path) = $res");
@@ -1968,7 +1993,7 @@ F<http://wiki.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2005-2013 Barbie for Miss Barbell Productions.
+  Copyright (C) 2005-2014 Barbie for Miss Barbell Productions.
 
   This distribution is free software; you can redistribute it and/or
   modify it under the Artistic Licence v2.
