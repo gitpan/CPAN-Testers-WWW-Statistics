@@ -1,6 +1,9 @@
 Revision history for CPAN-Testers-WWW-Statistics
 ================================================
 
+1.11    2014-05-11
+        - build performance data in isolation.
+
 1.10    2014-04-21
         - tester() now returns an list.
         - monthstore and mainstore merged.

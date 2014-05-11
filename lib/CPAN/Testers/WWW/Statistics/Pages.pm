@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.10';
+$VERSION = '1.11';
 
 #----------------------------------------------------------------------------
 
@@ -150,6 +150,10 @@ Create all other statistical pages; monthly tables, interesting stats, etc.
 
 Create all OS Leaderboards.
 
+=item * build_performance
+
+Create/update the builder performance data file.
+
 =item * build_noreports
 
 Create all OS no report pages.
@@ -267,11 +271,12 @@ sub build_stats {
 
     $self->{parent}->_log("stats start");
 
+    $self->{parent}->_log("building dist hash from storage");
     $self->storage_read();
     my $testers = $self->storage_read('testers');
+    $self->{parent}->_log("dist hash from storage built");
 
     if($testers) {
-        $self->{parent}->_log("building dist hash from storage");
 
         for my $tester (keys %$testers) {
             $self->{counts}{$testers->{$tester}{first}}{first}++;
@@ -279,6 +284,7 @@ sub build_stats {
         }
 
         $testers = {};  # save memory
+        $self->{parent}->_log("tester counts built");
 
         my @versions = sort {versioncmp($b,$a)} keys %{$self->{perls}};
         $self->{versions} = \@versions;
@@ -301,6 +307,18 @@ sub build_stats {
     }
 
     $self->{parent}->_log("stats finish");
+}
+
+sub build_performance {
+    my $self = shift;
+
+    $self->{parent}->_log("performance start");
+    $self->{build} = $self->storage_read('build');
+
+    ## BUILD PERFORMANCE FILES
+    $self->_build_performance_stats();
+
+    $self->{parent}->_log("performance finish");
 }
 
 sub build_leaders {

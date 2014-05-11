@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.10';
+$VERSION = '1.11';
 
 #----------------------------------------------------------------------------
 
@@ -195,6 +195,10 @@ Method to manage the creation of the OS leaderboard web pages.
 
 Method to manage the creation of the no reports pages.
 
+=item * make_performance
+
+Method to manage the creation/update of the builder performance data file.
+
 =item * make_graphs
 
 Method to manage the creation of all the statistics graphs.
@@ -273,6 +277,14 @@ sub make_noreports {
 
     my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
     $stats->build_noreports();
+}
+
+sub make_performance {
+    my $self = shift;
+    $self->_check_files();
+
+    my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
+    $stats->build_performance();
 }
 
 sub make_graphs {
