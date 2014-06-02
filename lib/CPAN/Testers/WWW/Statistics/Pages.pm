@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.11';
+$VERSION = '1.12';
 
 #----------------------------------------------------------------------------
 
@@ -54,6 +54,7 @@ Note that this package should not be called directly, but via its parent as:
 # Library Modules
 
 use Data::Dumper;
+use DateTime;
 use File::Basename;
 use File::Copy;
 use File::Path;
@@ -760,6 +761,10 @@ sub _report_cpan {
 
     $self->{parent}->_log("building cpan trends page");
 
+    my $directory = $self->{parent}->directory;
+    my $results   = "$directory/stats";
+    mkpath($results);
+
     my $next = $self->{parent}->{CPANSTATS}->iterator('hash',"SELECT * FROM uploads ORDER BY released");
     while(my $row = $next->()) {
         next    if($row->{dist} eq 'perl');
@@ -778,10 +783,6 @@ sub _report_cpan {
 
         $self->{pause}{$date}++;
     }
-
-    my $directory = $self->{parent}->directory;
-    my $results   = "$directory/stats";
-    mkpath($results);
 
     my $stat6  = IO::File->new("$results/stats6.txt",'w+')     or die "Cannot write to file [$results/stats6.txt]: $!\n";
     print $stat6 "#DATE,AUTHORS,DISTROS\n";
@@ -943,6 +944,30 @@ sub _report_cpan {
     }
 
     $self->_writepage('statscpan',\%tvars);
+
+
+    $self->{parent}->_log("building cpan/backpan 100s");
+
+    # calculate CPAN 100 data
+    $self->_count_mailrc();
+    @rows = $self->{parent}->{CPANSTATS}->get_query('hash',"SELECT t.author,t.count FROM (SELECT author,count(distinct dist) AS count FROM uploads WHERE type!='backpan' GROUP BY author ORDER BY count DESC LIMIT 100) AS t WHERE t.count >= 100");
+    my $fh = IO::File->new(">$results/cpan100.csv");
+    printf $fh "# DATE: %s\n", DateTime->now->datetime;
+    print $fh "#Pause,Count,Name\n";
+    for my $row (@rows) {
+        printf $fh "%s,%d,%s\n", $row->{author}, $row->{count}, $self->{alias}{$row->{author}}||'???';
+    }
+    $fh->close;
+
+    # calculate BACKCPAN 100 data
+    @rows = $self->{parent}->{CPANSTATS}->get_query('hash',"SELECT t.author,t.count FROM (SELECT author,count(distinct dist) AS count FROM uploads GROUP BY author ORDER BY count DESC LIMIT 100) AS t WHERE t.count >= 100");
+    $fh = IO::File->new(">$results/backpan100.csv");
+    printf $fh "# DATE: %s\n", DateTime->now->datetime;
+    print $fh "#Pause,Count,Name\n";
+    for my $row (@rows) {
+        printf $fh "%s,%d,%s\n", $row->{author}, $row->{count}, $self->{alias}{$row->{author}}||'???';
+    }
+    $fh->close;
 }
 
 sub _update_noreports {
@@ -1945,7 +1970,8 @@ sub _count_mailrc {
 
     my $fh  = IO::File->new($mailrc,'r')     or die "Cannot read file [$mailrc]: $!\n";
     while(<$fh>) {
-        next    unless(/^alias\s*\w/);
+        next    unless(/^alias\s*(\w+)\s+"([\s\w]+)\s+<[^>]+>"/);
+        $self->{alias}{$1} = $2;
         $count++;
     }
     $fh->close;
