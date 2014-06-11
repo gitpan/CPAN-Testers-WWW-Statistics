@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.12';
+$VERSION = '1.13';
 
 #----------------------------------------------------------------------------
 
@@ -187,6 +187,10 @@ Method to manage the creation of the matrix style statistics web pages.
 
 Method to manage the creation of the tabular style statistics web pages.
 
+=item * make_cpan
+
+Method to manage the creation of the CPAN specific statistics files and web pages.
+
 =item * make_leaders
 
 Method to manage the creation of the OS leaderboard web pages.
@@ -261,6 +265,14 @@ sub make_stats {
 
     my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
     $stats->build_stats();
+}
+
+sub make_cpan {
+    my $self = shift;
+    $self->_check_files();
+
+    my $stats = CPAN::Testers::WWW::Statistics::Pages->new(parent => $self);
+    $stats->build_cpan();
 }
 
 sub make_leaders {

@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = '1.12';
+$VERSION = '1.13';
 
 #----------------------------------------------------------------------------
 
@@ -151,6 +151,10 @@ Create all other statistical pages; monthly tables, interesting stats, etc.
 
 Create all OS Leaderboards.
 
+=item * build_cpan
+
+Create/update the CPAN specific statistics data files and pages.
+
 =item * build_performance
 
 Create/update the builder performance data file.
@@ -278,7 +282,6 @@ sub build_stats {
     $self->{parent}->_log("dist hash from storage built");
 
     if($testers) {
-
         for my $tester (keys %$testers) {
             $self->{counts}{$testers->{$tester}{first}}{first}++;
             $self->{counts}{$testers->{$tester}{last}}{last}++;
@@ -308,6 +311,18 @@ sub build_stats {
     }
 
     $self->{parent}->_log("stats finish");
+}
+
+sub build_cpan {
+    my $self = shift;
+
+    $self->{parent}->_log("cpan stats start");
+
+    ## BUILD INDEPENDENT STATS
+    $self->_build_sizes();
+    $self->_report_cpan();
+
+    $self->{parent}->_log("cpan stats finish");
 }
 
 sub build_performance {
@@ -810,8 +825,11 @@ sub _report_cpan {
     $stat12->close;
 #    $stat13->close;
 
+    $tvars{maxyear} = DateTime->now->year;
     $self->_writepage('trends',\%tvars);
 
+    $self->_report_new_distros();
+    $self->_report_submissions();
 
     $self->{parent}->_log("building cpan leader page");
 
@@ -968,6 +986,151 @@ sub _report_cpan {
         printf $fh "%s,%d,%s\n", $row->{author}, $row->{count}, $self->{alias}{$row->{author}}||'???';
     }
     $fh->close;
+}
+
+sub _report_new_distros {
+    my $self = shift;
+
+    $self->{parent}->_log("building new distro pages");
+
+    my (%seen,%allversions,%newversions);
+    my $start_year = 1995;
+    my $start_month = 8;
+    my $this_year = DateTime->now->year;
+    my $sql = 'select author,dist,version,from_unixtime(released) as reldate from uploads where released >= ? AND released < ? order by released';
+
+    for my $year (1995 .. $this_year) {
+        my $tvars = { template => 'newdistros', year => $year };
+
+        for my $month (1 .. 12) {
+            next if($year == $start_year && $month < $start_month);
+
+            my $thismon = DateTime->new( year => $year, month => $month, day => 1, hour => 0, minute => 0, second => 0);
+            my $nextmon = DateTime->new( year => $thismon->clone->add( months => 1 )->year, month => $thismon->clone->add( months => 1 )->month, day => 1, hour => 0, minute => 0, second => 0);
+
+            last if($thismon > DateTime->now);
+
+            $tvars->{newdistros}{$month}{month}   = $thismon->month_name;
+            $tvars->{newdistros}{$month}{counter} = 0;
+
+            my @rows = $self->{parent}->{CPANSTATS}->get_query('hash',$sql,$thismon->epoch(),$nextmon->epoch());
+            for my $row (@rows) {
+                $allversions{$row->{version}}++;
+
+                next if($seen{$row->{dist}});
+
+                $seen{$row->{dist}} = 1;
+                push @{$tvars->{newdistros}{$month}{dists}},
+                    {
+                        author  => $row->{author},
+                        dist    => $row->{dist},
+                        version => $row->{version},
+                        reldate => $row->{reldate}
+                    };
+
+                $tvars->{newdistros}{$month}{counter}++;
+                $newversions{$row->{version}}++;
+            }
+        }
+
+        $self->_writepage("newdistros/$year",$tvars);
+    }
+
+    $self->{parent}->_log("building new distro versions page");
+
+    my (@allversions,@newversions);
+    for my $v (sort {$allversions{$b} <=> $allversions{$a}} keys %allversions) {
+        push @allversions, { version => $v, count => $allversions{$v} };
+    }
+    my $tvars = { template => 'versions', type => 'All', versions => \@allversions };
+    $self->_writepage("newdistros/allversions",$tvars);
+
+    for my $v (sort {$newversions{$b} <=> $newversions{$a}} keys %newversions) {
+        push @newversions, { version => $v, count => $newversions{$v} };
+    }
+    $tvars = { template => 'versions', type => 'New', versions => \@newversions };
+    $self->_writepage("newdistros/newversions",$tvars);
+}
+
+sub _report_submissions {
+    my $self = shift;
+
+    $self->{parent}->_log("building submission data files");
+
+    my $sql = 'select from_unixtime(released) as reldate from uploads';
+
+    my $now = DateTime->now;
+    my (%hours,%days,%months,%dotw,%tvars);
+
+    my $next = $self->{parent}->{CPANSTATS}->iterator('hash',$sql);
+    while( my $row = $next->() ) {
+        next unless($row->{reldate} && $row->{reldate} =~ /^(\d+)\-(\d+)\-(\d+).(\d+):(\d+):(\d+)/);
+        my ($year,$month,$day,$hour,$minute,$second) = ($1,$2,$3,$4,$5,$6);
+
+        my $date = DateTime->new( year => $year, month => $month, day => $day, hour => $hour, minute => $minute, second => $second );
+        my $dotw = $date->day_of_week;
+
+        $months{that}{$month}++;
+        $dotw{that}{$dotw}++;
+        $days{that}{$day}++;
+        $hours{that}{$hour}++;
+
+        if($year != $now->year) {
+            $months{this}{$month}++;
+            $dotw{this}{$dotw}++;
+        } elsif($date->week_number != $now->week_number) {
+            $dotw{this}{$dotw}++;
+        }
+
+        if(( $year != $now->year) ||
+           ( $year == $now->year && $month != $now->month) ) {
+            $days{this}{$day}++;
+        }
+
+        if(( $year != $now->year) ||
+           ( $year == $now->year && $month != $now->month) ||
+           ( $year == $now->year && $month == $now->month && $day != $now->day) ) {
+            $hours{this}{$hour}++;
+        }
+    }
+
+    my $directory = $self->{parent}->directory;
+    my $results   = "$directory/rates";
+    mkpath($results);
+
+    $self->{parent}->_log("writing $results/submit1.txt");
+    my $fh = IO::File->new(">$results/submit1.txt");
+    print $fh "#INDEX,EXCLUSIVE,INCLUSIVE\n";
+    for my $month (sort {$a <=> $b} keys %{$months{this}}) {
+        printf $fh "%d,%d,%d\n", $month, $months{this}{$month}, $months{that}{$month};
+    }
+    $fh->close;
+
+    $self->{parent}->_log("writing $results/submit2.txt");
+    $fh = IO::File->new(">$results/submit2.txt");
+    print $fh "#INDEX,EXCLUSIVE,INCLUSIVE\n";
+    for my $dotw (sort {$a <=> $b} keys %{$dotw{this}}) {
+        printf $fh "%d,%d,%d\n", $dotw, $dotw{this}{$dotw}, $dotw{that}{$dotw};
+    }
+    $fh->close;
+
+    $self->{parent}->_log("writing $results/submit3.txt");
+    $fh = IO::File->new(">$results/submit3.txt");
+    print $fh "#INDEX,EXCLUSIVE,INCLUSIVE\n";
+    for my $day (sort {$a <=> $b} keys %{$days{this}}) {
+        printf $fh "%d,%d,%d\n", $day, $days{this}{$day}, $days{that}{$day};
+    }
+    $fh->close;
+
+    $self->{parent}->_log("writing $results/submit4.txt");
+    $fh = IO::File->new(">$results/submit4.txt");
+    print $fh "#INDEX,EXCLUSIVE,INCLUSIVE\n";
+    for my $hour (sort {$a <=> $b} keys %{$hours{this}}) {
+        printf $fh "%d,%d,%d\n", $hour, $hours{this}{$hour}, $hours{that}{$hour};
+    }
+    $fh->close;
+
+    $self->_writepage('rates',\%tvars);
 }
 
 sub _update_noreports {
@@ -1920,9 +2083,10 @@ sub _writepage {
     my $layout    = "$tlayout.$extension";
     my $source    = "$template.$extension";
     my $target    = "$directory/$page.$extension";
-    mkdir(dirname($target));
 
     #$self->{parent}->_log("_writepage: layout=$layout, source=$source, target=$target");
+
+    mkdir(dirname($target));
 
     $vars->{SOURCE}     = $source;
     $vars->{VERSION}    = $VERSION;
