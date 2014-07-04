@@ -2,7 +2,7 @@
 use strict;
 $|++;
 
-my $VERSION = '0.07';
+my $VERSION = '1.14';
 
 #----------------------------------------------------------------------------
 
@@ -107,7 +107,15 @@ sub retrieve_from_db {
     $tvars{id}      = $rows[0]->{id};
     $tvars{guid}    = $rows[0]->{guid};
     $tvars{subject} = sprintf "%s %s-%s %s %s", uc $rows[0]->{state}, $rows[0]->{dist}, $rows[0]->{version}, $rows[0]->{perl}, $rows[0]->{osname};
-    $tvars{from}    = $rows[0]->{tester};
+
+    # find testers preferred contact address
+    $sql = 'SELECT tp.* FROM testers.address ta '
+        .  'LEFT JOIN testers.profile tp ON tp.testerid=ta.testerid '
+        .  'WHERE ta.address=? ORDER BY tp.testerid DESC';
+    @mails = $dbh->get_query('hash',$sql,$rows[0]->{tester});
+
+    $tvars{from}   = $mails[0]->{contact} if(@mails);
+    $tvars{from} ||= $rows[0]->{tester};    # just in case
 
     return 1;
 }
@@ -169,9 +177,9 @@ F<http://stats.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2005-2011 Barbie for Miss Barbell Productions.
+  Copyright (C) 2005-2014 Barbie for Miss Barbell Productions.
 
-  This module is free software; you can redistribute it and/or
-  modify it under the same terms as Perl itself.
+  This distribution is free software; you can redistribute it and/or
+  modify it under the Artistic Licence v2.
 
 =cut

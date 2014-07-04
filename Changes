@@ -1,6 +1,9 @@
 Revision history for CPAN-Testers-WWW-Statistics
 ================================================
 
+1.14    2014-07-04
+        - add logic for tester preferred contact address.
+
 1.13    2014-06-11
         - added new distributions pages.
         - added new distribution versions page.
